@@ -4,7 +4,7 @@
 
 [Virtual Windows mouse](https://github.com/caiom/win_virtual_mouse) using the [driver](https://github.com/hedgar2017/loki-hidriver) and [instructions](https://github.com/xibici/loki-hidriver).
 
-Check these [instructions](https://github.com/n1ckfg/ViveTrackerExample) for running SteamVR without a head set
+Check these [instructions](https://github.com/n1ckfg/ViveTrackerExample) for running SteamVR without a headset.
 
 
 Set vive tracker as a left hand controller and change
