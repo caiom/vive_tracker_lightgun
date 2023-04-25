@@ -5,41 +5,18 @@ import math
 
 import time
 import json
-from arduino_test import ArduinoMouse2, WindowsCursor
+from arduino_test import ArduinoMouse, WindowsCursor
 from receive_udp import MAMECursor
-
 
 from pynput import keyboard
 
 mode = 'none'
-c_top_left = False
-c_top_right = False
-c_bottom_left = False
-c_bottom_right = False
-save_info = False
-use_device_rot = False
 
 def on_press(key):
-    global mode, c_top_left, c_top_right, c_bottom_left, c_bottom_right, save_info, use_device_rot
+    global mode
     try:
         print('alphanumeric key {0} pressed'.format(
             key.char))
-        if key.char == 'a':
-            c_bottom_left = True
-        if key.char == 'z':
-            save_info = True
-        if key.char == 's':
-            c_top_left = True
-        if key.char == 'd':
-            c_top_right = True
-        if key.char == 'f':
-            c_bottom_right = True
-        if key.char == 'x':
-            if use_device_rot:
-                use_device_rot = False
-            else:
-                use_device_rot = True
-            use_device_rot = True
         if key.char == 'm':
             mode = 'mame'
         if key.char == 'w':
@@ -61,33 +38,6 @@ listener = keyboard.Listener(
     on_press=on_press,
     on_release=on_release)
 listener.start()
-
-def unit_vector_to_euler_angles(vector, up=np.array([0, 1, 0])):
-    vx, vy, vz = vector
-    
-    # Calculate yaw angle (θ)
-    yaw = np.arctan2(vy, vx)
-    
-    pitch = np.arctan2(np.sqrt(vx**2 + vy**2), vz)
-    
-    # Calculate the right vector by taking the cross product of the direction vector and the up vector
-    right = np.cross(vector, up)
-    
-    # Normalize the right vector
-    right /= np.linalg.norm(right)
-
-    # Calculate the new up vector by taking the cross product of the right vector and the direction vector
-    new_up = np.cross(right, vector)
-    
-    # Calculate the roll angle (ψ) using the dot product of the new up vector and the original up vector
-    roll = np.arccos(np.dot(new_up, up))
-
-    # Convert the angles from radians to degrees, if necessary
-    pitch_deg = np.degrees(pitch)
-    yaw_deg = np.degrees(yaw)
-    roll_deg = np.degrees(roll)
-
-    return pitch_deg, yaw_deg, roll_deg
 
 def project_ray_to_plane(plane_point, plane_normal, point, dir):
     epsilon=1e-6
@@ -149,7 +99,7 @@ v.print_discovered_objects()
 
 running = True
 dt = 0
-mouse = ArduinoMouse2(1.0)
+mouse = ArduinoMouse(1.0)
 windows_cursor = WindowsCursor(1920, 1080)
 mame_cursor = MAMECursor(1920, 1080)
 
@@ -165,14 +115,10 @@ rotation_matrix = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0.0, -1, 0, 0], [0, 0, 
 
 device_to_gun_1 = np.load('device_to_gun_1.npy')
 device_to_gun_2 = np.load('device_to_gun_2.npy')
-# print(device_to_gun)
-print(calib)
-
 
 mouse_buttom = 0
 frame = 0
 st = time.time()
-
 
 save_number = 0
 while mode != 'exit':
@@ -184,58 +130,19 @@ while mode != 'exit':
         continue
 
     pose_matrix = np.asarray(pose_matrix)
-    # pose_matrix = pose_matrix @ rotation_matrix
+
     pose_matrix_4x4 = np.eye(4)
     pose_matrix_4x4[:3, :] = pose_matrix
     pose_matrix = (device_to_gun_2 @ pose_matrix_4x4 @ device_to_gun_1)[:3, :]
-
     
     # The last column is the tracker translation (x, y, z)
     tracker_position = np.copy(pose_matrix[:, -1])
-
-    # Zero the translation
-    # pose_matrix[:, -1] = 0.0
-
-    # print(original_pose_matrix)
-    # print(pose_matrix)
-
-    # Ajust the rotation in the expected axis
-    # print(triad_openvr.convert_to_euler(pose_matrix))
     pose_matrix = pose_matrix @ rotation_matrix
-    # if pose_matrix[1][0] >= 0 and pose_matrix[0][0] >= 0 or pose_matrix[1][0] < 0
-    original = np.copy(pose_matrix)
-    # pose_matrix[0][0]  = original[0][0] * -1
-    # pose_matrix[1][0]  = original[1][0] * -1
-    # pose_matrix[2][0]  = original[2][0] * -1
 
-    # pose_matrix[0][1]  = original[2][1] * -1
-    # pose_matrix[1][1]  = original[1][2] * -1
-    # pose_matrix[2][1]  = original[0][1]
-
-    # pose_matrix[0][2]  = original[2][2]
-    # pose_matrix[1][2]  = original[1][1] * -1
-    # pose_matrix[2][2]  = original[0][2] * -1
-
-    # print(pose_matrix)
-
+    # -Z direction
     tracker_direction = -pose_matrix[:3, 2]
 
-    # print(tracker_position)
-
-    # tracker_position -= tracker_direction * (0.115)
-    # print(tracker_position)
-
-    # print(triad_openvr.convert_to_euler(pose_matrix))
-    # print('pos', tracker_position)
-    # print('dir', tracker_direction)
-    # print('dir, euler', unit_vector_to_euler_angles(list(tracker_direction)))
-
-    # print(unit_vector_to_euler_angles(list(tracker_direction)))
-
     controller_input = v.devices["tracker_1"].get_controller_inputs()
-    # print(controller_input)
-
-    # print(controller_input)
 
     mouse_buttom = 0
 
@@ -246,31 +153,10 @@ while mode != 'exit':
     if controller_input['trigger'] > 0.5:
         mouse_buttom += 1
 
-
     p_screen = project_ray_to_plane(calib['top_left'], calib['plane_normal'], tracker_position, tracker_direction)
-
-    # if c_top_left:
-    #     print('Setting top_left')
-    #     calib['top_left'] = p_screen1
-    #     c_top_left = False
-    # if c_top_right:
-    #     print('Setting top right')
-    #     calib['top_right'] = p_screen1
-    #     c_top_right = False
-    # if c_bottom_left:
-    #     print('Setting bottom_left')
-    #     calib['bottom_left'] = p_screen1
-    #     c_bottom_left = False
-    # if c_bottom_right:
-    #     print('Setting bottom_right')
-    #     calib['bottom_right'] = p_screen1
-    #     c_bottom_right = False
-
-    # print(p_screen1, p_screen2, p_screen3, p_screen4)
 
     # Project point into the u/v screen coordinate system
     u_coord, v_coord = point_to_uv_coordinates_multi(calib, p_screen)
-    # print(f'U: {u_coord}, V: {v_coord}')
 
     if math.isnan(u_coord) or math.isnan(v_coord):
         time.sleep(0.002)
@@ -279,23 +165,15 @@ while mode != 'exit':
     if mode == 'windows':
         pos_x, pos_y = windows_cursor.get_position()
         mouse.update_position(pos_x, pos_y)
-        # print(pos_x, pos_y)
         target_x, target_y = windows_cursor.process_target(u_coord, v_coord)
-        mouse.set_sensi(1)
         mouse.move_mouse_absolute(target_x, target_y, mouse_buttom)
     elif mode == 'mame':
         if mame_cursor.has_new_pos():
             pos_x, pos_y = mame_cursor.get_position()
             mouse.update_position(pos_x, pos_y)
         target_x, target_y = mame_cursor.process_target(u_coord, v_coord)
-        mouse.set_sensi(1.0)
-        # mouse.set_sensi(1)
         mouse.move_mouse_absolute(target_x, target_y, mouse_buttom)
 
-    # print('Done setting pos')
-    # print(target_x)
-    # print(target_y)
-    # print(tracker_position, tracker_direction)
     time.sleep(0.002)
 
 mouse.close()
