@@ -21,6 +21,8 @@ pos_x = 0.5
 pos_y = 0.5
 width = 288
 height = 233
+is_running = True
+has_new = False
 
 def send_udp_message():
     global is_connected
@@ -51,16 +53,17 @@ def send_udp_message():
 
 
 def udp_sender_thread():
-    while True:
+    global is_running
+    while is_running:
         send_udp_message()
         time.sleep(2)  # Sleep for 2 seconds
 
 
 def receiver_thread():
-    global pos_x, pos_y, width, height, is_connected
+    global pos_x, pos_y, width, height, is_connected, is_running, has_new
 # Keep the main program running to allow the sender_thread to continue executing
     try:
-        while True:
+        while is_running:
             if is_connected:
                 try:
                     data, addr = udp_socket.recvfrom(18) # Buffer size is set to 18 bytes
@@ -73,6 +76,7 @@ def receiver_thread():
             if data:
                 # Unpack the data using struct
                 char1, char2, width, height, pos_x, pos_y = struct.unpack('<cciiff', data)
+                has_new = True
 
                 # Convert the bytes for chars to strings
                 char1 = char1.decode('utf-8')
@@ -104,13 +108,18 @@ class MAMECursor:
         self.border_right = self.screen_4_3_border_size + self.screen_4_3_width
 
     def get_position(self):
-        y = 1-pos_y
+        global has_new
+        y = pos_y
         x = pos_x
         x = x*self.screen_4_3_width + self.border_left
         y = y*self.screen_height
         x = np.clip(x, self.border_left, self.border_right)
         y = np.clip(y, 0, self.screen_height)
+        has_new = False
         return (x, y)
+    def has_new_pos(self):
+        global has_new
+        return has_new
     
     def process_target(self, x, y):
         target_x = x*self.screen_width
@@ -121,6 +130,8 @@ class MAMECursor:
         return (target_x, target_y)
     
     def close(self):
+        global is_running
+        is_running = False
         self.sender_thread.join()
         self.recv_thread.join()
         udp_socket.close()

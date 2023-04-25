@@ -2,10 +2,10 @@
 import time
 from pynput.mouse import Controller
 import numpy as np
-from arduino_test import ArduinoMouse
+from arduino_test import ArduinoMouse2
 
 mouse_ctrl = Controller()
-mouse = ArduinoMouse(2560, 1440, 2, 1)
+mouse = ArduinoMouse2(1.0)
 
 def reset_x_axis():
     delta_x_pixels = -mouse_ctrl.position[0]

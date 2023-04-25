@@ -197,7 +197,7 @@ class triad_openvr():
         self.object_names = {"Tracking Reference":[],"HMD":[],"Controller":[],"Tracker":[]}
         self.devices = {}
         self.device_index_map = {}
-        poses = self.vr.getDeviceToAbsoluteTrackingPose(openvr.TrackingUniverseStanding, 0,
+        poses = self.vr.getDeviceToAbsoluteTrackingPose(openvr.TrackingUniverseSeated, 0,
                                                                openvr.k_unMaxTrackedDeviceCount)
 
         # Loading config file

@@ -42,7 +42,7 @@ v.print_discovered_objects()
 
 # pygame setup
 pygame.init()
-screen = pygame.display.set_mode((1280, 720))
+screen = pygame.display.set_mode((1280, 720), pygame.FULLSCREEN)
 clock = pygame.time.Clock()
 running = True
 dt = 0
@@ -51,7 +51,12 @@ ball_pos = pygame.Vector2(0, screen.get_height())
 pos_mapping = {0: (0, screen.get_height()),
                1: (0, 0),
                2: (screen.get_width(), 0),
-               3: (screen.get_width(), screen.get_height())}
+               3: (screen.get_width(), screen.get_height()),
+               4: (screen.get_width() / 2, screen.get_height() / 2),
+               5: (1/4*screen.get_width(), 3/4*screen.get_height()),
+               6: (1/4*screen.get_width(), 1/4*screen.get_height()),
+               7: (3/4*screen.get_width(), 1/4*screen.get_height()),
+               8: (3/4*screen.get_width(), 3/4*screen.get_height()),}
 screen_corners = []
 corner_number = 0
 
@@ -83,19 +88,19 @@ while running:
 
             print((tracker_position, tracker_direction))
             corner_number += 1
-            ball_pos.x = pos_mapping[corner_number % 4][0]
-            ball_pos.y = pos_mapping[corner_number % 4][1]
+            ball_pos.x = pos_mapping[corner_number % 9][0]
+            ball_pos.y = pos_mapping[corner_number % 9][1]
             screen_corners.append((tracker_position, tracker_direction))
 
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_c:
 
-            assert len(screen_corners) % 4 == 0, 'Calibration failed, please point the gun at the four corners at least twice'
+            assert len(screen_corners) % 9 == 0, 'Calibration failed, please point the gun at the four corners at least twice'
 
             calibration_dict = {}
-            for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right']):
+            for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center', 'qbl', 'qtl', 'qtr', 'qbr']):
                 print(corner)
                 corner_points = []
-                for j in range(i, len(screen_corners), 4):
+                for j in range(i, len(screen_corners), 9):
                     corner_points.append(screen_corners[j])
                 
                 point_comb = list(combinations(corner_points, 2))
@@ -123,7 +128,7 @@ while running:
             running=False
 
     # Draw circle as a reference for aiming
-    pygame.draw.circle(screen, "red", ball_pos, 40)
+    pygame.draw.circle(screen, "red", ball_pos, 10)
 
     # flip() the display to put your work on screen
     pygame.display.flip()

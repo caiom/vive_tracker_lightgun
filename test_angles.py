@@ -52,3 +52,13 @@ print(l1.project_point(p3).distance_point(p1) / l1.direction.norm())
 print(project_point_onto_line(p3, l1))
 
 # %%
+
+
+slope = (5.6-4.9)/66.7
+
+
+#%%
+
+from scipy.spatial.transform import Rotation as R
+r = R.from_mrp([0.4147, 0, 0])
+r.as_matrix()
