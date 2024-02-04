@@ -30,7 +30,7 @@ class ArduinoMouse:
         self.target_y = 0.0
         self.max_error = 1.0
         self.set_resolution(1e-5)
-        self.arduino = serial.Serial(port='COM3', baudrate=115200)
+        self.arduino = serial.Serial(port='COM7', baudrate=115200)
         self.running = True
         self.thread_lock = threading.Lock()
         self.thread = threading.Thread(target=self.move_mouse_thread)

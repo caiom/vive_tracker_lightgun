@@ -26,6 +26,33 @@ def project_ray_to_plane(plane_point, plane_normal, point, dir):
     return p_screen
 
 
+def point_to_ray_distance(P, R, D):
+    """
+    Calculate the minimum distance from a point to a ray in 3D space.
+    
+    Parameters:
+    - P: Coordinates of the point as a numpy array [px, py, pz].
+    - R: Coordinates of a point on the ray as a numpy array [rx, ry, rz].
+    - D: Direction vector of the ray as a numpy array [rdx, rdy, rdz].
+    
+    Returns:
+    - The minimum distance from point P to the ray defined by R and D.
+    """
+    # Vector from point on the ray to P
+    RP = P - R
+    
+    # Projection of RP onto the direction vector D
+    proj_RP_D = (np.dot(RP, D) / np.dot(D, D)) * D
+    
+    # Vector from P to the closest point on the ray
+    closest_vector = RP - proj_RP_D
+    
+    # Distance is the magnitude of the closest_vector
+    distance = np.linalg.norm(closest_vector)
+    
+    return distance
+
+
 def point_to_uv_coordinates(U_axis, V_axis, axis_center, P):
 
     # Calculate the P_vector
@@ -61,8 +88,8 @@ def point_to_uv_coordinates_multi(calib, P):
     u_coord = (u_coord1 * (1-v_coord1) + u_coord2 * v_coord1 + u_coord3 * v_coord1 + u_coord4* (1-v_coord1)) / 2
     v_coord = (v_coord1 * (1-u_coord1) + v_coord2 * (1-u_coord1) + v_coord3 * u_coord1 + v_coord4 * u_coord1) / 2
 
-    v_coord = v_coord / (1/0.8888888888888889) + 0.0555555555555556
-    u_coord = u_coord / (1/0.9375) + 0.03125
+    # v_coord = v_coord / (1/0.8888888888888889) + 0.0555555555555556
+    # u_coord = u_coord / (1/0.9375) + 0.03125
 
     return (u_coord, v_coord)
 
@@ -102,7 +129,8 @@ def plane_intersection(ray_origin, ray_direction, plane_point, plane_normal):
 
 def calculate_pos_and_dir_from_pose(pose_matrix):
     # The last column is the tracker translation (x, y, z)
-    tracker_position = np.copy(pose_matrix[:, -1])
+    # print(pose_matrix)
+    tracker_position = np.copy(pose_matrix[:3, -1])
 
     rotation_matrix = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0.0, -1, 0, 0], [0, 0, 0, 0]])
 
@@ -110,35 +138,48 @@ def calculate_pos_and_dir_from_pose(pose_matrix):
 
     # The direction of the tracker is the -Z direction
     tracker_direction = -pose_matrix[:3, 2]
+    # tracker_direction = np.array([-pose_matrix[0, 2], pose_matrix[0, 1], -pose_matrix[0, 0]])
 
     return (tracker_position, tracker_direction)
 
 def calculate_plane_points(screen_corners):
 
     calibration_dict = {}
-
+    # calibration_dict['error'] = 0.0
     # for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center', 'qbl', 'qtl', 'qtr', 'qbr']):
     for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center']):
         # print(corner)
         corner_points = []
-        for j in range(i, len(screen_corners), NUM_POINTS):
+        for read, j in enumerate(range(i, len(screen_corners), NUM_POINTS)):
             corner_points.append(screen_corners[j])
-        
+
         point_comb = list(combinations(corner_points, 2))
+        # for j in range(0, len(corner_points), 2):
+        #     for k in range(1, len(corner_points), 2):
+        #         point_comb.append((corner_points[j], corner_points[k]))
 
         comb_points = []
+        comb_points_dist = []
         for ray1, ray2 in point_comb:
             p1, p2 = closest_points_on_rays(ray1[0], ray1[1], ray2[0], ray2[1])
             mean_point = (p1 + p2) / 2
             comb_points += [mean_point]
+            comb_points_dist += [np.linalg.norm(p1-p2)]
 
-        calibration_dict[corner] = np.median(comb_points, axis=0)
+        # print(f'{corner}: mean dist {np.mean(comb_points_dist)} max dist: {np.max(comb_points_dist)}')
+
+        # print(f'{corner}: {comb_points}')
+        calibration_dict[corner] = np.mean(comb_points, axis=0)
+
+        # for corner_point in corner_points:
+        #     calibration_dict['error'] += point_to_ray_distance(calibration_dict[corner], corner_point[0], corner_point[1]) / len(corner_points) / NUM_POINTS
 
     return calibration_dict
 
 def recalculate_plane_points(screen_corners, calib):
 
     calibration_dict = copy.deepcopy(calib)
+    # calibration_dict['plane_error'] = 0.0
 
     # for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center', 'qbl', 'qtl', 'qtr', 'qbr']):
     for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center']):
@@ -151,6 +192,7 @@ def recalculate_plane_points(screen_corners, calib):
         for corner_point in corner_points:
             comb_points += [project_ray_to_plane(calib['ref_plane_normal'], calib['plane_normal'], corner_point[0], corner_point[1])]
 
+        # calibration_dict['plane_error'] += np.linalg.norm(calibration_dict[corner] - np.median(comb_points, axis=0)) / NUM_POINTS
         calibration_dict[corner] = np.median(comb_points, axis=0)
 
     return calibration_dict
@@ -184,7 +226,9 @@ def error_function2(device_to_gun, base_matrix, pose_matrices, target_points_2d,
     elif mode == 'translation':
         transform_matrix[:3, 3] = device_to_gun
     elif mode == 'both':
-        transform_matrix[:3, :3] = Rotation.from_euler('xyz', device_to_gun[:3], degrees=True).as_matrix()
+        # transform_matrix[:3, :3] = Rotation.from_euler('xyz', device_to_gun[:3], degrees=True).as_matrix()
+        # transform_matrix[:3, 3] = device_to_gun[3:6]
+        transform_matrix[:3, :3] = Rotation.from_mrp(device_to_gun[:3]).as_matrix()
         transform_matrix[:3, 3] = device_to_gun[3:6]
 
     transform_matrix2 = np.eye(4)
@@ -281,8 +325,8 @@ def error_function2(device_to_gun, base_matrix, pose_matrices, target_points_2d,
         errors = []
 
         for i, target_point in enumerate(target_points_2d):
-            for j in range(i, len(plane_points_u_v), NUM_POINTS):
-                errors.extend((np.array(plane_points_u_v[j]) - target_point).flatten())
+            for read, j in enumerate(range(i, len(plane_points_u_v), NUM_POINTS)):
+                    errors.extend((np.array(plane_points_u_v[j]) - target_point).flatten())
 
         return errors
 
@@ -298,6 +342,75 @@ def error_function2(device_to_gun, base_matrix, pose_matrices, target_points_2d,
         # print(f'Error: {error}')
 
         return error / len(plane_points_u_v)
+    
+
+def error_function3(device_to_gun, base_matrix, pose_matrices, target_points_2d, mode='rotation', take_mean=True, save=False):
+
+    transform_matrix = np.eye(4)
+    if mode == 'rotation':
+        transform_matrix[:3, :3] = Rotation.from_euler('xyz', device_to_gun[:3], degrees=True).as_matrix()
+    elif mode == 'translation':
+        transform_matrix[:3, 3] = device_to_gun
+    elif mode == 'both':
+        transform_matrix[:3, :3] = Rotation.from_euler('xyz', device_to_gun[:3], degrees=True).as_matrix()
+        transform_matrix[:3, 3] = device_to_gun[3:6]
+
+
+    if save:
+        np.save('device_to_gun_1.npy', transform_matrix)
+
+    gun_to_world_list = []
+    for pose_matrix in pose_matrices:
+        gun_to_world = np.eye(4)
+        gun_to_world[:3, :3] = pose_matrix[:3,:3] @ transform_matrix[:3, :3]
+        gun_to_world[:3, 3] = (pose_matrix[:3,:3] @ transform_matrix[:3, 3]) + pose_matrix[:3,3]
+        gun_to_world_list.append(gun_to_world)
+
+    pos_dir_points = [calculate_pos_and_dir_from_pose(pose_matrix) for pose_matrix in gun_to_world_list]
+    calib = calculate_plane_points(pos_dir_points)
+    calib = calculate_plane(calib)
+    calib = recalculate_plane_points(pos_dir_points, calib)
+    if save:
+        calibration_dict = {}
+        # # Convert to lists
+        for key, val in calib.items():
+            calibration_dict[key] = list(val)
+
+        # Save
+        with open("calibration_new_1.json", 'w') as f:
+            json.dump(calibration_dict, f, indent=2)
+    # print(calib)
+    plane_points_3d = [project_ray_to_plane(calib['top_left'], calib['plane_normal'], pos, dir) for pos, dir in pos_dir_points]
+    # print(plane_points_3d[0])
+    # plane_points_u_v = [point_to_uv_coordinates(calib['top_right'] - calib['top_left'], calib['bottom_left'] - calib['top_left'], calib['top_left'],  p_screen, device_to_gun[6], device_to_gun[7]) for p_screen in plane_points_3d]
+    plane_points_u_v = [point_to_uv_coordinates_multi(calib, p_screen) for p_screen in plane_points_3d]
+    # print(plane_points_u_v[0])
+    # print(plane_points_u_v[9])
+    # print(plane_points_u_v[18])
+
+    if not take_mean:
+
+        errors = []
+
+        for i, target_point in enumerate(target_points_2d):
+            for read, j in enumerate(range(i, len(plane_points_u_v), NUM_POINTS)):
+                    errors.extend((np.array(plane_points_u_v[j]) - target_point).flatten())
+
+        return errors
+
+    else:
+
+        error = 0.0
+
+        for i, target_point in enumerate(target_points_2d):
+            for j in range(i, len(plane_points_u_v), NUM_POINTS):
+                error += np.linalg.norm(np.array(plane_points_u_v[j]) - target_point)
+
+
+        # print(f'Error: {error}')
+
+        return error / len(plane_points_u_v)
+        # return calib['error'] 
 
 
 def error_function2_s(device_to_gun, pose_matrices, target_points_2d, mode):
@@ -458,38 +571,41 @@ pos_mapping = {0: (0.03125, 1-0.0555555555555556),
                3: (1-0.03125, 1-0.0555555555555556),
                4: (0.5, 0.5),}
 
+pos_mapping = {0: (0, 1),
+               1: (0, 0),
+               2: (1, 0),
+               3: (1, 1),
+               4: (0.5, 0.5),}
+
 target_points_2d = list(pos_mapping.values())
 pose_matrices = []
-for i in range(0, 30):
+for i in range(0, 15):
     pose_matrix = np.load(f'pose_matrix_{i}.npy')
     pose_matrices.append(pose_matrix)
 
 device_to_gun_rot = np.array([0.0, 0.0, 0.])
 # device_to_gun_rot = np.array([0.3088855 ,  0.05939724,  0.33346251,  0.03281174,  0.00630954, 0.03542247,  0.34026668,  0.06543169,  0.36734058])
 device_to_gun_trans = np.array([0.0, 0.0, 0.])
-# device_to_gun_trans = np.array([ -0.0573907 ,-0.04132067,  0.02597444])
+# device_to_gun_trans = np.array([ -0.0073907 ,-0.21132067,  0.02597444])
 # device_to_gun = np.array([1., 0., 0., 0., 1., 0., 0., 0., 1.])
 
 # errors = error_function2(device_to_gun, pose_matrices, target_points_2d)
 # print(errors)
 
-bounds_low_rot = [-180 for _ in range(3)]
-bounds_low_trans = [-0.30 for _ in range(3)]
-bounds_low = bounds_low_rot + bounds_low_trans + bounds_low_rot + bounds_low_trans
+bounds_low_rot = [-35 for _ in range(3)]
+bounds_low_trans = [-0.3 for _ in range(3)]
+bounds_low = bounds_low_rot + bounds_low_trans
 
 
-bounds_high_rot = [180 for _ in range(3)]
-bounds_high_trans = [0.30 for _ in range(3)]
-bias_high = [0.05 for _ in range(2)]
-bounds_high = bounds_high_rot + bounds_high_trans + bounds_high_rot + bounds_high_trans
+bounds_high_rot = [35 for _ in range(3)]
+bounds_high_trans = [0.3 for _ in range(3)]
+bounds_high = bounds_high_rot + bounds_high_trans
 
 
 
-bounds = [(-180, 180) for _ in range(3)]
-bounds.append((-0.21, 0.21))
-bounds.append((-0.21, 0.21))
-bounds.append((-0.21, 0.21))
-bounds_double = bounds + bounds
+rot_bounds = [(-35, 35) for _ in range(3)]
+trans_bounds = [(-0.3, 0.3) for _ in range(3)]
+dif_e_bounds = rot_bounds + trans_bounds
 
 base_matrix = np.eye(4)
 
@@ -497,10 +613,10 @@ base_matrix = np.eye(4)
 # print(errors)
 
 device_to_gun_rot_trans = np.concatenate((device_to_gun_rot, device_to_gun_trans))
-device_to_gun_rot_trans2 = np.copy(device_to_gun_rot_trans)
+# device_to_gun_rot_trans2 = np.copy(device_to_gun_rot)
 
 
-device_to_gun_rot_trans_double = np.concatenate((device_to_gun_rot_trans, device_to_gun_rot_trans2))
+# device_to_gun_rot_trans_double = np.concatenate((device_to_gun_rot_trans, device_to_gun_rot_trans2))
 
 bounds_low_double = bounds_low + bounds_low
 bounds_high_double = bounds_high + bounds_high
@@ -508,77 +624,52 @@ bounds_high_double = bounds_high + bounds_high
 
 
 st = time.time()
-print(error_function2(device_to_gun_rot_trans_double, base_matrix, pose_matrices, target_points_2d, 'both', True))
-errors = error_function2(device_to_gun_rot_trans_double, base_matrix, pose_matrices, target_points_2d, 'both', False)
+print('Initial Error')
+print(error_function3(device_to_gun_rot_trans, base_matrix, pose_matrices, target_points_2d, 'both', True))
+errors = error_function3(device_to_gun_rot_trans, base_matrix, pose_matrices, target_points_2d, 'both', False)
 print(errors)
 
-num_reads = len(errors)//(NUM_POINTS*2)
-point_size = num_reads*2
+def print_errors(errors):
 
-for point in range(NUM_POINTS):
-    curr_point_list_x = []
-    curr_point_list_y = []
-    for reading in range(num_reads):
-        p_s = point*point_size
-        r_s = reading*2
-        curr_point_list_x.append(errors[p_s+r_s])
-        curr_point_list_y.append(errors[p_s+r_s+1])
-    mean_norm = np.linalg.norm(np.stack((curr_point_list_x, curr_point_list_y)), axis=0)
-    print(f'Point {point}: error x: {np.mean(curr_point_list_x):.3f} error y: {np.mean(curr_point_list_y):.3f}, error norm: {np.mean(mean_norm)}')
+    num_reads = len(errors)//(NUM_POINTS*2)
+    point_size = num_reads*2
 
-for reading in range(num_reads):
-    curr_point_list_x = []
-    curr_point_list_y = []
     for point in range(NUM_POINTS):
-        p_s = point*point_size
-        r_s = reading*2
-        curr_point_list_x.append(errors[p_s+r_s])
-        curr_point_list_y.append(errors[p_s+r_s+1])
+        curr_point_list_x = []
+        curr_point_list_y = []
+        for reading in range(num_reads):
+            p_s = point*point_size
+            r_s = reading*2
+            curr_point_list_x.append(errors[p_s+r_s])
+            curr_point_list_y.append(errors[p_s+r_s+1])
+        mean_norm = np.linalg.norm(np.stack((curr_point_list_x, curr_point_list_y)), axis=0)
+        print(f'Point {point}: error x: {np.mean(curr_point_list_x):.3f} error y: {np.mean(curr_point_list_y):.3f}, error norm: {np.mean(mean_norm)}')
 
-    print(f'Read z: {pose_matrices[reading*4][2, 3]}')
-    print(f'Read x: {pose_matrices[reading*4][0, 3]}')
-    mean_norm = np.linalg.norm(np.stack((curr_point_list_x, curr_point_list_y)), axis=0)
-    print(f'Read {reading}: error x: {np.mean(curr_point_list_x):.3f} error y: {np.mean(curr_point_list_y):.3f}, error norm: {np.mean(mean_norm)}')
+    for reading in range(num_reads):
+        curr_point_list_x = []
+        curr_point_list_y = []
+        for point in range(NUM_POINTS):
+            p_s = point*point_size
+            r_s = reading*2
+            curr_point_list_x.append(errors[p_s+r_s])
+            curr_point_list_y.append(errors[p_s+r_s+1])
+
+        print(f'Read z: {pose_matrices[reading*4][2, 3]}')
+        print(f'Read x: {pose_matrices[reading*4][0, 3]}')
+        mean_norm = np.linalg.norm(np.stack((curr_point_list_x, curr_point_list_y)), axis=0)
+        print(f'Read {reading}: error x: {np.mean(curr_point_list_x):.3f} error y: {np.mean(curr_point_list_y):.3f}, error norm: {np.mean(mean_norm)}')
 
 
 print(f'Time 2s: {time.time()-st}')
 
-# res = least_squares(error_function2, device_to_gun_rot_trans, args=(base_matrix, pose_matrices, target_points_2d, 'both', False), method='trf', loss='huber')
-res = least_squares(error_function2, device_to_gun_rot_trans_double, args=(base_matrix, pose_matrices, target_points_2d, 'both', False), bounds=(bounds_low, bounds_high), ftol=1e-15, xtol=1e-20, gtol=1e-15)
-print(error_function2(res.x, base_matrix, pose_matrices, target_points_2d, 'both', True))
-errors = error_function2(res.x, base_matrix, pose_matrices, target_points_2d, 'both', False, True)
+# res = least_squares(error_function2, device_to_gun_rot_trans, args=(base_matrix, pose_matrices, target_points_2d, 'both', False), method='trf', loss='huber')  bounds=(bounds_low, bounds_high),
+res = least_squares(error_function3, device_to_gun_rot_trans, args=(base_matrix, pose_matrices, target_points_2d, 'both', False), ftol=1e-15, xtol=1e-20, gtol=1e-15, bounds=(bounds_low, bounds_high))
+print(res.x)
+print('Error after Min squares 1')
+print(error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both', True))
+errors = error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both', False, False)
 
-num_reads = len(errors)//18
-point_size = num_reads*2
-
-for point in range(9):
-    curr_point_list_x = []
-    curr_point_list_y = []
-    for reading in range(num_reads):
-        p_s = point*point_size
-        r_s = reading*2
-        curr_point_list_x.append(errors[p_s+r_s])
-        curr_point_list_y.append(errors[p_s+r_s+1])
-    mean_norm = np.linalg.norm(np.stack((curr_point_list_x, curr_point_list_y)), axis=0)
-    print(f'Point {point}: error x: {np.mean(curr_point_list_x):.3f} error y: {np.mean(curr_point_list_y):.3f}, error norm: {np.mean(mean_norm)}')
-
-num_reads = len(errors)//18
-point_size = num_reads*2
-for reading in range(num_reads):
-    curr_point_list_x = []
-    curr_point_list_y = []
-    for point in range(9):
-        p_s = point*point_size
-        r_s = reading*2
-        curr_point_list_x.append(errors[p_s+r_s])
-        curr_point_list_y.append(errors[p_s+r_s+1])
-
-    print(f'Read z: {pose_matrices[reading*9][2, 3]}')
-    print(f'Read x: {pose_matrices[reading*9][0, 3]}')
-    mean_norm = np.linalg.norm(np.stack((curr_point_list_x, curr_point_list_y)), axis=0)
-    if reading == 7:
-        print(curr_point_list_x)
-    print(f'Read {reading}: error x: {np.mean(curr_point_list_x):.3f} error y: {np.mean(curr_point_list_y):.3f}, error norm: {np.mean(mean_norm)}')
+print_errors(errors)
 
 
 print(res)
@@ -601,27 +692,42 @@ print(res)
     
 
 # res = minimize(error_function2_s, device_to_gun, args=(pose_matrices, target_points_2d), bounds=bounds)
-# res = differential_evolution(error_function2_s, args=(pose_matrices, target_points_2d), bounds=bounds, workers=-1)
+# res = differential_evolution(error_function2_s, args=(pose_matrices, target_points_2d), bounds=bounds, workers=-1, disp=True)
 # res = basinhopping(error_function2_s, device_to_gun, args=(pose_matrices, target_points_2d), bounds=bounds)
 
 # st = time.time()
 # print(error_function2_s(res.x, pose_matrices, target_points_2d, 'both'))
 # print(f'Time 2s: {time.time()-st}')
-# res = differential_evolution(error_function2, args=(base_matrix, pose_matrices, target_points_2d, 'both', True), bounds=bounds_double, workers=1, maxiter=500, disp=True, tol=0.000000001)
-res = least_squares(error_function2, res.x, args=(base_matrix, pose_matrices, target_points_2d, 'both'), bounds=(bounds_low, bounds_high), ftol=1e-15, xtol=1e-20, gtol=1e-15)
-base_matrix[:3, :3] = np.reshape(res.x[:9], (3, 3))
-base_matrix[:3, 3] = res.x[9:]
+res = differential_evolution(error_function3, args=(device_to_gun_rot_trans, pose_matrices, target_points_2d, 'both', True), bounds=dif_e_bounds, workers=1, maxiter=500, disp=True, tol=0.000000001)
+mean_error = error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both', True, False)
+errors = error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both', False, False)
+print(res.x)
 
-st = time.time()
-errors = error_function2_s(res.x, pose_matrices, target_points_2d, 'both')
-print(time.time()-st)
-print(errors)
+print('Error after diff eval')
+print(mean_error)
+print_errors(errors)
 
-base_matrix[:3, :3] = np.reshape(res.x[:9], (3, 3))
-base_matrix[:3, 3] = res.x[9:]
+res = least_squares(error_function3, res.x, args=(base_matrix, pose_matrices, target_points_2d, 'both', False), ftol=1e-15, xtol=1e-20, gtol=1e-15)
+print(res.x)
+print('Error least squares 2')
+print(error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both', True))
+errors = error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both', False, True)
 
-errors = error_function_p(None, base_matrix, pose_matrices, target_points_2d, 'none', True)
-print(errors)
+print_errors(errors)
+# res = least_squares(error_function2, res.x, args=(base_matrix, pose_matrices, target_points_2d, 'both'), bounds=(bounds_low, bounds_high), ftol=1e-15, xtol=1e-20, gtol=1e-15)
+# base_matrix[:3, :3] = np.reshape(res.x[:9], (3, 3))
+# base_matrix[:3, 3] = res.x[9:]
+
+# st = time.time()
+# errors = error_function2_s(res.x, pose_matrices, target_points_2d, 'both')
+# print(time.time()-st)
+# print(errors)
+
+# base_matrix[:3, :3] = np.reshape(res.x[:9], (3, 3))
+# base_matrix[:3, 3] = res.x[9:]
+
+# errors = error_function_p(None, base_matrix, pose_matrices, target_points_2d, 'none', True)
+# print(errors)
 
 
 

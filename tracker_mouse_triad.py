@@ -96,9 +96,6 @@ def point_to_uv_coordinates_multi(calib, P):
     u_coord = (u_coord1 * (1-v_coord1) + u_coord2 * v_coord1 + u_coord3 * v_coord1 + u_coord4* (1-v_coord1)) / 2
     v_coord = (v_coord1 * (1-u_coord1) + v_coord2 * (1-u_coord1) + v_coord3 * u_coord1 + v_coord4 * u_coord1) / 2
 
-    v_coord = v_coord / (1/0.8888888888888889) + 0.0555555555555556
-    u_coord = u_coord / (1/0.9375) + 0.03125
-
     return (u_coord, v_coord)
 
 v = triad_openvr.triad_openvr()
@@ -124,7 +121,6 @@ for key, val in calib.items():
 rotation_matrix = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0.0, -1, 0, 0], [0, 0, 0, 0]])
 
 device_to_gun_1 = np.load('device_to_gun_1.npy')
-device_to_gun_2 = np.load('device_to_gun_2.npy')
 
 mouse_buttom = 0
 frame = 0
@@ -141,15 +137,18 @@ while mode != 'exit':
 
     pose_matrix = np.asarray(pose_matrix)
 
-    pose_matrix_4x4 = np.eye(4)
-    pose_matrix_4x4[:3, :] = pose_matrix
-    pose_matrix = (device_to_gun_2 @ pose_matrix_4x4 @ device_to_gun_1)[:3, :]
+    gun_to_world = np.eye(4)
+    gun_to_world[:3, :3] = pose_matrix[:3,:3] @ device_to_gun_1[:3, :3]
+    gun_to_world[:3, 3] = (pose_matrix[:3,:3] @ device_to_gun_1[:3, 3]) + pose_matrix[:3,3]
     
     # The last column is the tracker translation (x, y, z)
-    tracker_position = np.copy(pose_matrix[:, -1])
-    pose_matrix = pose_matrix @ rotation_matrix
+    tracker_position = np.copy(gun_to_world[:3, -1])
 
-    # -Z direction
+    rotation_matrix = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0.0, -1, 0, 0], [0, 0, 0, 0]])
+
+    pose_matrix = gun_to_world @ rotation_matrix
+
+    # The direction of the tracker is the -Z direction
     tracker_direction = -pose_matrix[:3, 2]
 
     controller_input = v.devices["tracker_1"].get_controller_inputs()

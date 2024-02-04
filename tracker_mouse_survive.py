@@ -1,15 +1,27 @@
-import triad_openvr
+
 import time
 import numpy as np
 import math
+import pysurvive
+from scipy.spatial.transform import Rotation
 
 import time
 import json
 from arduino_test import ArduinoMouse, WindowsCursor
 from receive_udp import MAMECursor
+import sys
 
 from pynput import keyboard
 from screeninfo import get_monitors
+
+pose_matrix = None
+
+def pose_func(ctx, timecode, pose):
+    global pose_matrix
+    pose_matrix = np.zeros((3, 4))
+    rot = Rotation.from_quat(pose[3:])
+    pose_matrix[:, :3] = rot.as_matrix()
+    pose_matrix[:, 3] = np.array(pose[:3])
 
 mode = 'none'
 offscreen_reload = False
@@ -96,14 +108,10 @@ def point_to_uv_coordinates_multi(calib, P):
     u_coord = (u_coord1 * (1-v_coord1) + u_coord2 * v_coord1 + u_coord3 * v_coord1 + u_coord4* (1-v_coord1)) / 2
     v_coord = (v_coord1 * (1-u_coord1) + v_coord2 * (1-u_coord1) + v_coord3 * u_coord1 + v_coord4 * u_coord1) / 2
 
-    v_coord = v_coord / (1/0.8888888888888889) + 0.0555555555555556
-    u_coord = u_coord / (1/0.9375) + 0.03125
-
     return (u_coord, v_coord)
 
-v = triad_openvr.triad_openvr()
-v.print_discovered_objects()
-
+ctx = pysurvive.init(sys.argv)
+pysurvive.install_pose_fn(ctx, pose_func)
 
 monitor = get_monitors()[0]
 
@@ -121,10 +129,7 @@ with open("calibration_new_1.json", 'r') as f:
 for key, val in calib.items():
     calib[key] = np.asfarray(val)
 
-rotation_matrix = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0.0, -1, 0, 0], [0, 0, 0, 0]])
-
 device_to_gun_1 = np.load('device_to_gun_1.npy')
-device_to_gun_2 = np.load('device_to_gun_2.npy')
 
 mouse_buttom = 0
 frame = 0
@@ -133,26 +138,25 @@ st = time.time()
 save_number = 0
 while mode != 'exit':
 
-    pose_matrix = eval(str(v.devices["tracker_1"].get_pose_matrix()))
+    pysurvive.poll(ctx)
+    pysurvive.poll(ctx)
 
     if pose_matrix is None or np.isnan(np.sum(pose_matrix)):
         time.sleep(0.002)
         continue
 
-    pose_matrix = np.asarray(pose_matrix)
 
-    pose_matrix_4x4 = np.eye(4)
-    pose_matrix_4x4[:3, :] = pose_matrix
-    pose_matrix = (device_to_gun_2 @ pose_matrix_4x4 @ device_to_gun_1)[:3, :]
+    gun_to_world = np.eye(4)
+    gun_to_world[:3, :3] = pose_matrix[:3,:3] @ device_to_gun_1[:3, :3]
+    gun_to_world[:3, 3] = (pose_matrix[:3,:3] @ device_to_gun_1[:3, 3]) + pose_matrix[:3,3]
     
     # The last column is the tracker translation (x, y, z)
-    tracker_position = np.copy(pose_matrix[:, -1])
-    pose_matrix = pose_matrix @ rotation_matrix
+    tracker_position = np.copy(gun_to_world[:3, 3])
 
     # -Z direction
-    tracker_direction = -pose_matrix[:3, 2]
+    tracker_direction = np.array([-pose_matrix[0, 2], pose_matrix[0, 1], -pose_matrix[0, 0]])
 
-    controller_input = v.devices["tracker_1"].get_controller_inputs()
+    # controller_input = v.devices["tracker_1"].get_controller_inputs()
 
     p_screen = project_ray_to_plane(calib['top_left'], calib['plane_normal'], tracker_position, tracker_direction)
 
@@ -164,23 +168,23 @@ while mode != 'exit':
         continue
 
     mouse_buttom = 0
-    if offscreen_reload and (u_coord < 0 or u_coord > 1 or v_coord < 0 or v_coord > 1): 
-        if controller_input['trackpad_touched']:
-            mouse_buttom += 4
-        # if controller_input['trigger'] > 0.5:
-        #     mouse_buttom += 2
-        if controller_input['menu_button']:
-            mouse_buttom += 3
-    else:
-        # if not offscreen_reload:
-        #     if controller_input['menu_button']:
-        #         mouse_buttom += 1
-        if controller_input['trackpad_touched']:
-            mouse_buttom += 2
-        # if controller_input['trigger'] > 0.5:
-        #     mouse_buttom += 1
-        if controller_input['menu_button']:
-            mouse_buttom += 1
+    # if offscreen_reload and (u_coord < 0 or u_coord > 1 or v_coord < 0 or v_coord > 1): 
+    #     if controller_input['trackpad_touched']:
+    #         mouse_buttom += 4
+    #     # if controller_input['trigger'] > 0.5:
+    #     #     mouse_buttom += 2
+    #     if controller_input['menu_button']:
+    #         mouse_buttom += 3
+    # else:
+    #     # if not offscreen_reload:
+    #     #     if controller_input['menu_button']:
+    #     #         mouse_buttom += 1
+    #     if controller_input['trackpad_touched']:
+    #         mouse_buttom += 2
+    #     # if controller_input['trigger'] > 0.5:
+    #     #     mouse_buttom += 1
+    #     if controller_input['menu_button']:
+    #         mouse_buttom += 1
 
 
     if mode == 'windows':
@@ -195,7 +199,7 @@ while mode != 'exit':
         target_x, target_y = mame_cursor.process_target(u_coord, v_coord)
         mouse.move_mouse_absolute(target_x, target_y, mouse_buttom)
 
-    time.sleep(0.002)
+    time.sleep(0.001)
 
 mouse.close()
 mame_cursor.close()

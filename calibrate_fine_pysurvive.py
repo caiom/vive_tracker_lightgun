@@ -2,9 +2,36 @@ import pygame
 import triad_openvr
 import numpy as np
 
-# Triad Init
-v = triad_openvr.triad_openvr()
-v.print_discovered_objects()
+import sys
+import pysurvive
+from scipy.spatial.transform import Rotation
+
+ctx = pysurvive.init(sys.argv)
+pose_matrix = np.zeros((3, 4))
+menu_buttom = False
+
+def pose_func(ctx, timecode, pose):
+    global pose_matrix
+    rot = Rotation.from_quat(pose[3:])
+    pose_matrix[:, :3] = rot.as_matrix()
+    pose_matrix[:, 3] = np.array(pose[:3])
+
+def button_func(obj, eventtype, buttonid, axisids, axisvals):
+    global menu_buttom
+    if eventtype == pysurvive.SURVIVE_INPUT_EVENT_BUTTON_DOWN:
+        if buttonid == 2:
+            menu_buttom = True
+        eventstring = "DOWN"
+    elif eventtype == pysurvive.SURVIVE_INPUT_EVENT_BUTTON_UP:
+        if buttonid == 2:
+            menu_buttom = False
+        eventstring = "UP"
+    else:
+        eventstring = "%d" % (eventtype)
+    print("Button %d on %s generated event %s"%(buttonid, obj.contents.codename.decode('utf8'), eventstring))
+
+pysurvive.install_pose_fn(ctx, pose_func)
+pysurvive.install_button_fn(ctx, button_func)
 
 # pygame setup
 pygame.init()
@@ -47,6 +74,7 @@ pos_mapping = {0: (large_ball_size, screen.get_height()-large_ball_size),
                3: (screen.get_width()-large_ball_size, screen.get_height()-large_ball_size),
                4: (screen.get_width() / 2, screen.get_height() / 2)}
 
+half_large_ball = large_ball_size / 2
 ball_pos = pygame.Vector2(0, screen.get_height())
 pos_mapping = {0: (0, screen.get_height()),
                1: (0, 0),
@@ -64,21 +92,16 @@ while running:
     
     # fill the screen with a color to wipe away anything from last frame
     screen.fill("white")
+    pysurvive.poll(ctx)
 
-    pose_matrix = eval(str(v.devices["tracker_1"].get_pose_matrix()))
-    pose_matrix = np.asarray(pose_matrix)
-    # print(v.devices["tracker_1"].get_pose_euler())
-    controller_input = v.devices["tracker_1"].get_controller_inputs()
-    # print(controller_input)
-
-    if controller_input['menu_button'] and not trigger_pressed:
+    if menu_buttom and not trigger_pressed:
         np.save(f'pose_matrix_{corner_number}.npy', pose_matrix)
         corner_number+=1
         ball_pos.x = pos_mapping[corner_number % num_key_points][0]
         ball_pos.y = pos_mapping[corner_number % num_key_points][1]
         trigger_pressed = True
 
-    if not controller_input['menu_button'] and trigger_pressed:
+    if not menu_buttom and trigger_pressed:
         trigger_pressed = False
     
 
@@ -92,7 +115,7 @@ while running:
 
     # Draw circle as a reference for aiming
     pygame.draw.circle(screen, "red", ball_pos, large_ball_size)
-    pygame.draw.circle(screen, "black", ball_pos, small_ball_size)
+    pygame.draw.circle(screen, "green", ball_pos, small_ball_size)
 
     # flip() the display to put your work on screen
     pygame.display.flip()
@@ -100,7 +123,8 @@ while running:
     # limits FPS to 60
     # dt is delta time in seconds since last frame, used for framerate-
     # independent physics.
-    dt = clock.tick(100) / 1000
-    print(dt)
+    dt = clock.tick(1000) / 1000
+    # print(dt)
 
+pysurvive.close(ctx)
 pygame.quit()
