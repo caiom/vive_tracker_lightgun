@@ -70,10 +70,14 @@ def get_pose(vr_obj):
 
 
 class vr_tracked_device():
-    def __init__(self,vr_obj,index,device_class):
+    def __init__(self,vr_obj,index,device_class, input_sys, handles, action_set, iss):
         self.device_class = device_class
         self.index = index
         self.vr = vr_obj
+        self.handles = handles
+        self.input_sys = input_sys
+        self.action_set = action_set
+        self.iss = iss
 
     @lru_cache(maxsize=None)
     def get_serial(self):
@@ -172,8 +176,16 @@ class vr_tracked_device():
         return d
 
     def get_controller_inputs(self):
-        result, state = self.vr.getControllerState(self.index)
-        return self.controller_state_to_dict(state)
+        # result, state = self.vr.getControllerState(self.index)
+        # return self.controller_state_to_dict(state)
+        state_list = []
+        # self.input_sys.updateActionState()
+        print(self.input_sys.updateActionState(self.action_set))
+        for handle, input_source in zip(self.handles, self.iss):
+            self.input_sys.updateActionState(handle)
+            state = self.input_sys.getDigitalActionData(handle, input_source)
+            state_list.append(state)
+        return state_list
 
     def trigger_haptic_pulse(self, duration_micros=1000, axis_id=0):
         """
@@ -192,6 +204,15 @@ class triad_openvr():
         # Initialize OpenVR in the
         self.vr = openvr.init(openvr.VRApplication_Other)
         self.vrsystem = openvr.VRSystem()
+        self.input_sys = openvr.VRInput()
+        self.input_sys.setActionManifestPath("C:\\Users\\Caio\\vive_tracker_lightgun\\action_file.json")
+        self.handles = [self.input_sys.getActionHandle("/actions/legacy/in/left_axis1_press"),
+                        self.input_sys.getActionHandle("/actions/legacy/in/left_applicationmenu_press"),
+                        self.input_sys.getActionHandle("/actions/legacy/in/left_axis0_press")]
+        self.actionset_handle = self.input_sys.getActionSetHandle("/actions/legacy")
+        self.iss = [self.input_sys.getInputSourceHandle("/user/hand/left/input/trigger"),
+                    self.input_sys.getInputSourceHandle("/user/hand/left/input/application_menu"),
+                    self.input_sys.getInputSourceHandle("/user/hand/left/input/thumb")]
 
         # Initializing object to hold indexes for various tracked objects
         self.object_names = {"Tracking Reference":[],"HMD":[],"Controller":[],"Tracker":[]}
@@ -247,25 +268,26 @@ class triad_openvr():
     def add_tracked_device(self, tracked_device_index):
         i = tracked_device_index
         device_class = self.vr.getTrackedDeviceClass(i)
+        print(self.vr.getControllerRoleForTrackedDeviceIndex(i))
         if (device_class == openvr.TrackedDeviceClass_Controller):
             device_name = "controller_"+str(len(self.object_names["Controller"])+1)
             self.object_names["Controller"].append(device_name)
-            self.devices[device_name] = vr_tracked_device(self.vr,i,"Controller")
+            self.devices[device_name] = vr_tracked_device(self.vr,i,"Controller", self.input_sys, self.handles, self.actionset_handle, self.iss)
             self.device_index_map[i] = device_name
         elif (device_class == openvr.TrackedDeviceClass_HMD):
             device_name = "hmd_"+str(len(self.object_names["HMD"])+1)
             self.object_names["HMD"].append(device_name)
-            self.devices[device_name] = vr_tracked_device(self.vr,i,"HMD")
+            self.devices[device_name] = vr_tracked_device(self.vr,i,"HMD", self.input_sys, self.handles, self.actionset_handle, self.iss)
             self.device_index_map[i] = device_name
         elif (device_class == openvr.TrackedDeviceClass_GenericTracker):
             device_name = "tracker_"+str(len(self.object_names["Tracker"])+1)
             self.object_names["Tracker"].append(device_name)
-            self.devices[device_name] = vr_tracked_device(self.vr,i,"Tracker")
+            self.devices[device_name] = vr_tracked_device(self.vr,i,"Tracker", self.input_sys, self.handles, self.actionset_handle, self.iss)
             self.device_index_map[i] = device_name
         elif (device_class == openvr.TrackedDeviceClass_TrackingReference):
             device_name = "tracking_reference_"+str(len(self.object_names["Tracking Reference"])+1)
             self.object_names["Tracking Reference"].append(device_name)
-            self.devices[device_name] = vr_tracking_reference(self.vr,i,"Tracking Reference")
+            self.devices[device_name] = vr_tracking_reference(self.vr,i,"Tracking Reference", self.input_sys, self.handles, self.actionset_handle, self.iss)
             self.device_index_map[i] = device_name
 
     def remove_tracked_device(self, tracked_device_index):

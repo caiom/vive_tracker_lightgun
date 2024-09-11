@@ -8,7 +8,7 @@ v.print_discovered_objects()
 
 # pygame setup
 pygame.init()
-screen = pygame.display.set_mode((1280, 720), pygame.FULLSCREEN)
+screen = pygame.display.set_mode((1280, 720))
 # screen = pygame.display.set_mode((1280, 720))
 clock = pygame.time.Clock()
 running = True
@@ -70,16 +70,18 @@ while running:
     # print(v.devices["tracker_1"].get_pose_euler())
     controller_input = v.devices["tracker_1"].get_controller_inputs()
     # print(controller_input)
+    for actionData in controller_input:
+        print(f"{actionData.bActive}, {actionData.bChanged}, {actionData.bState}")
 
-    if controller_input['menu_button'] and not trigger_pressed:
-        np.save(f'pose_matrix_{corner_number}.npy', pose_matrix)
-        corner_number+=1
-        ball_pos.x = pos_mapping[corner_number % num_key_points][0]
-        ball_pos.y = pos_mapping[corner_number % num_key_points][1]
-        trigger_pressed = True
+    # if controller_input['menu_button'] and not trigger_pressed:
+    #     np.save(f'pose_matrix_{corner_number}.npy', pose_matrix)
+    #     corner_number+=1
+    #     ball_pos.x = pos_mapping[corner_number % num_key_points][0]
+    #     ball_pos.y = pos_mapping[corner_number % num_key_points][1]
+    #     trigger_pressed = True
 
-    if not controller_input['menu_button'] and trigger_pressed:
-        trigger_pressed = False
+    # if not controller_input['menu_button'] and trigger_pressed:
+    #     trigger_pressed = False
     
 
     # poll for events
@@ -101,6 +103,6 @@ while running:
     # dt is delta time in seconds since last frame, used for framerate-
     # independent physics.
     dt = clock.tick(100) / 1000
-    print(dt)
+    # print(dt)
 
 pygame.quit()
