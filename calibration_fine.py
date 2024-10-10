@@ -132,12 +132,12 @@ def calculate_pos_and_dir_from_pose(pose_matrix):
     # print(pose_matrix)
     tracker_position = np.copy(pose_matrix[:3, -1])
 
-    rotation_matrix = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0.0, -1, 0, 0], [0, 0, 0, 0]])
+    # rotation_matrix = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0.0, -1, 0, 0], [0, 0, 0, 0]])
 
-    pose_matrix = pose_matrix @ rotation_matrix
+    # pose_matrix = pose_matrix @ rotation_matrix
 
     # The direction of the tracker is the -Z direction
-    tracker_direction = -pose_matrix[:3, 2]
+    tracker_direction = pose_matrix[2, :3]
     # tracker_direction = np.array([-pose_matrix[0, 2], pose_matrix[0, 1], -pose_matrix[0, 0]])
 
     return (tracker_position, tracker_direction)
@@ -362,8 +362,10 @@ def error_function3(device_to_gun, base_matrix, pose_matrices, target_points_2d,
     gun_to_world_list = []
     for pose_matrix in pose_matrices:
         gun_to_world = np.eye(4)
-        gun_to_world[:3, :3] = pose_matrix[:3,:3] @ transform_matrix[:3, :3]
-        gun_to_world[:3, 3] = (pose_matrix[:3,:3] @ transform_matrix[:3, 3]) + pose_matrix[:3,3]
+        gun_to_world = pose_matrix @ transform_matrix
+
+        # gun_to_world[:3, :3] = pose_matrix[:3,:3] @ transform_matrix[:3, :3]
+        # gun_to_world[:3, 3] = (pose_matrix[:3,:3] @ transform_matrix[:3, 3]) + pose_matrix[:3,3]
         gun_to_world_list.append(gun_to_world)
 
     pos_dir_points = [calculate_pos_and_dir_from_pose(pose_matrix) for pose_matrix in gun_to_world_list]
@@ -579,8 +581,8 @@ pos_mapping = {0: (0, 1),
 
 target_points_2d = list(pos_mapping.values())
 pose_matrices = []
-for i in range(0, 15):
-    pose_matrix = np.load(f'pose_matrix_{i}.npy')
+for i in range(0, 10):
+    pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\calibration_poses\\pose_matrix_{i}.npy')
     pose_matrices.append(pose_matrix)
 
 device_to_gun_rot = np.array([0.0, 0.0, 0.])
@@ -593,18 +595,18 @@ device_to_gun_trans = np.array([0.0, 0.0, 0.])
 # print(errors)
 
 bounds_low_rot = [-35 for _ in range(3)]
-bounds_low_trans = [-0.3 for _ in range(3)]
+bounds_low_trans = [-300 for _ in range(3)]
 bounds_low = bounds_low_rot + bounds_low_trans
 
 
 bounds_high_rot = [35 for _ in range(3)]
-bounds_high_trans = [0.3 for _ in range(3)]
+bounds_high_trans = [300 for _ in range(3)]
 bounds_high = bounds_high_rot + bounds_high_trans
 
 
 
 rot_bounds = [(-35, 35) for _ in range(3)]
-trans_bounds = [(-0.3, 0.3) for _ in range(3)]
+trans_bounds = [(-300.0, 300.0) for _ in range(3)]
 dif_e_bounds = rot_bounds + trans_bounds
 
 base_matrix = np.eye(4)
@@ -707,7 +709,7 @@ print('Error after diff eval')
 print(mean_error)
 print_errors(errors)
 
-res = least_squares(error_function3, res.x, args=(base_matrix, pose_matrices, target_points_2d, 'both', False), ftol=1e-15, xtol=1e-20, gtol=1e-15)
+res = least_squares(error_function3, res.x, args=(base_matrix, pose_matrices, target_points_2d, 'both', False), ftol=1e-15, xtol=1e-20, gtol=1e-15, bounds=(bounds_low, bounds_high))
 print(res.x)
 print('Error least squares 2')
 print(error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both', True))
@@ -788,19 +790,3 @@ print_errors(errors)
 
 # print("New device to world matrix:")
 # print(new_device_to_world)
-
-
-#%%
-r = Rotation.from_euler('zyx', [0, 0, 180], degrees=True)
-r.as_matrix
-# %%
-
-
-pose_matrix_4x4 = np.eye(4)
-pose_matrix_4x4[:3, :] = pose_matrices[0]
-# base_matrix[0, 3] = 1
-pose_matrix_4x4[0, 3] += 1
-
-base_matrix @ pose_matrix_4x4
-
-# %%

@@ -1,14 +1,21 @@
-import pygame
-import triad_openvr
-import numpy as np
+import os
+import sys
+import inspect
 
-# Triad Init
-v = triad_openvr.triad_openvr()
-v.print_discovered_objects()
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0, parentdir) 
+
+import pygame
+import numpy as np
+from pose_estimator import PoseEstimator
+
+# Pose estimator
+pose_estimator = PoseEstimator()
 
 # pygame setup
 pygame.init()
-screen = pygame.display.set_mode((1280, 720))
+screen = pygame.display.set_mode((1280, 720), pygame.FULLSCREEN)
 # screen = pygame.display.set_mode((1280, 720))
 clock = pygame.time.Clock()
 running = True
@@ -65,13 +72,10 @@ while running:
     # fill the screen with a color to wipe away anything from last frame
     screen.fill("white")
 
-    pose_matrix = eval(str(v.devices["tracker_1"].get_pose_matrix()))
-    pose_matrix = np.asarray(pose_matrix)
-    # print(v.devices["tracker_1"].get_pose_euler())
-    controller_input = v.devices["tracker_1"].get_controller_inputs()
-    # print(controller_input)
-    for actionData in controller_input:
-        print(f"{actionData.bActive}, {actionData.bChanged}, {actionData.bState}")
+    pose_matrix = pose_estimator.get_pose()
+
+    if pose_matrix is not None:
+        print("Valid")
 
     # if controller_input['menu_button'] and not trigger_pressed:
     #     np.save(f'pose_matrix_{corner_number}.npy', pose_matrix)
@@ -86,11 +90,29 @@ while running:
 
     # poll for events
     # pygame.QUIT event means the user clicked X to close your window
+
+    key_pressed = False
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_c:
             running=False
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_k:
+            key_pressed = True
+
+    if key_pressed and not trigger_pressed:
+        if pose_matrix is not None:
+            np.save(f'pose_matrix_{corner_number}.npy', pose_matrix)
+            corner_number+=1
+            ball_pos.x = pos_mapping[corner_number % num_key_points][0]
+            ball_pos.y = pos_mapping[corner_number % num_key_points][1]
+
+        trigger_pressed = True
+
+    if key_pressed and trigger_pressed:
+        trigger_pressed = False
+
 
     # Draw circle as a reference for aiming
     pygame.draw.circle(screen, "red", ball_pos, large_ball_size)
