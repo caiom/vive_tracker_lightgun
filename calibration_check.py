@@ -30,23 +30,30 @@ def closest_points_on_rays(o1, d1, o2, d2):
 
     return P1, P2
 
-pose_matrices = []
-for i in range(0, 10):
-    pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\calibration_poses\\pose_matrix_{i}.npy')
-    pose_matrices.append(pose_matrix)
+pose_matrices = [np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\pose_matrix_7.npy'), np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\pose_matrix_15.npy')]
+# for i in range(0, 10):
+#     pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\calib_poses_tv\\pose_matrix_{i}.npy')
+#     pose_matrices.append(pose_matrix)
 
 
 #%%
 
+from scipy.spatial.transform import Rotation
+
 tracker_pos_dir = []
 
-for pose_matrix in [pose_matrices[4], pose_matrices[9]]:
+for pose_matrix in [pose_matrices[0], pose_matrices[1]]:
     tracker_position = np.copy(pose_matrix[:3, -1])
-    tracker_direction = pose_matrix[:3, 2]
+    tracker_direction = pose_matrix[2, :3]
+    tracker_direction[2] = -tracker_direction[2]
+
+    print(Rotation.from_matrix(pose_matrix[:3, :3]).as_euler("xyz", degrees=True))
+
+    print(pose_matrix)
 
     tracker_pos_dir.append((tracker_position, tracker_direction))
 
-
+print(tracker_pos_dir)
 ps = closest_points_on_rays(tracker_pos_dir[0][0],
                             tracker_pos_dir[0][1],
                             tracker_pos_dir[1][0],

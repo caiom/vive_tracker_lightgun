@@ -1,142 +1,123 @@
-import json
-import pygame
-import triad_openvr
-import numpy as np
-from itertools import combinations
+import cv2 
+import numpy as np 
+import os 
+import glob 
+  
+  
+# Define the dimensions of checkerboard 
+CHECKERBOARD = (7, 10) 
+  
+  
+# stop the iteration when specified 
+# accuracy, epsilon, is reached or 
+# specified number of iterations are completed. 
+criteria = (cv2.TERM_CRITERIA_EPS + 
+            cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001) 
+  
+  
+# Vector for 3D points 
+threedpoints = [] 
+  
+# Vector for 2D points 
+twodpoints = [] 
+  
+  
+#  3D points real world coordinates 
+objectp3d = np.zeros((1, CHECKERBOARD[0]  
+                      * CHECKERBOARD[1],  
+                      3), np.float32) 
+objectp3d[0, :, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2) * 15
+prev_img_shape = None
+  
+  
+# Extracting path of individual image stored 
+# in a given directory. Since no path is 
+# specified, it will take current directory 
+# jpg files alone 
+images = glob.glob('C:\\Users\\v3n0w\\Downloads\\Camera\\calib_images_cam_2\\*.png') 
+  
+for filename in images: 
+    image = cv2.imread(filename) 
+    image = cv2.flip(image, 1)
+    grayColor = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) 
+  
+    # Find the chess board corners 
+    # If desired number of corners are 
+    # found in the image then ret = true 
+    ret, corners = cv2.findChessboardCorners( 
+                    grayColor, CHECKERBOARD,  
+                    cv2.CALIB_CB_ADAPTIVE_THRESH  
+                    + cv2.CALIB_CB_FAST_CHECK + 
+                    cv2.CALIB_CB_NORMALIZE_IMAGE) 
+  
+    # If desired number of corners can be detected then, 
+    # refine the pixel coordinates and display 
+    # them on the images of checker board 
+    if ret == True: 
+        threedpoints.append(objectp3d) 
+  
+        # Refining pixel coordinates 
+        # for given 2d points. 
+        corners2 = cv2.cornerSubPix( 
+            grayColor, corners, (11, 11), (-1, -1), criteria) 
+  
+        twodpoints.append(corners2) 
+  
+        # Draw and display the corners 
+        image = cv2.drawChessboardCorners(image,  
+                                          CHECKERBOARD,  
+                                          corners2, ret) 
+  
+    cv2.imshow('img', image)
+    cv2.waitKey(0) 
+  
+cv2.destroyAllWindows() 
+  
+h, w = image.shape[:2] 
+image_size = (w, h)
 
-def closest_points_on_rays(o1, d1, o2, d2):
+ret, matrix, distortion, r_vecs, t_vecs = cv2.calibrateCamera( 
+    threedpoints, twodpoints, grayColor.shape[::-1], None, None) 
 
-    # Calculate the vector connecting the origins
-    w0 = o1 - o2
+new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
+    matrix, distortion, image_size, alpha=0, newImgSize=image_size
+)
 
-    # Calculate dot products
-    A = np.dot(d1, d1)
-    B = np.dot(d1, d2)
-    C = np.dot(d2, d2)
-    D = np.dot(d1, w0)
-    E = np.dot(d2, w0)
+print(matrix)
+print(new_camera_matrix) 
 
-    # Check if the rays are parallel (or almost parallel)
-    denominator = A * C - B * B
-    if abs(denominator) < 1e-6:
-        # Rays are almost parallel
-        # In this case, we can just return the origin points as the closest points
-        return o1, o2
+mapx, mapy = cv2.initUndistortRectifyMap(
+    matrix, distortion, None, new_camera_matrix, image_size, cv2.CV_32FC1
+)
 
-    # Calculate the scalar parameters s and t
-    s = (B * E - C * D) / denominator
-    t = (A * E - B * D) / denominator
+np.save("mapx.npy", mapx)
+np.save("mapy.npy", mapy)
 
-    print(s)
-    print(t)
 
-    # Calculate the closest points P1 and P2
-    P1 = o1 + s * d1
-    P2 = o2 + t * d2
-
-    return P1, P2
-
-# Triad Init
-v = triad_openvr.triad_openvr()
-v.print_discovered_objects()
-
-# pygame setup
-pygame.init()
-screen = pygame.display.set_mode((1280, 720), pygame.FULLSCREEN)
-clock = pygame.time.Clock()
-running = True
-dt = 0
-
-ball_pos = pygame.Vector2(0, screen.get_height())
-pos_mapping = {0: (0, screen.get_height()),
-               1: (0, 0),
-               2: (screen.get_width(), 0),
-               3: (screen.get_width(), screen.get_height()),
-               4: (screen.get_width() / 2, screen.get_height() / 2),
-               5: (1/4*screen.get_width(), 3/4*screen.get_height()),
-               6: (1/4*screen.get_width(), 1/4*screen.get_height()),
-               7: (3/4*screen.get_width(), 1/4*screen.get_height()),
-               8: (3/4*screen.get_width(), 3/4*screen.get_height()),}
-screen_corners = []
-corner_number = 0
-
-while running:
-    
-    # fill the screen with a color to wipe away anything from last frame
-    screen.fill("purple")
-
-    pose_matrix = eval(str(v.devices["tracker_1"].get_pose_matrix()))
-    pose_matrix = np.asarray(pose_matrix)
-
-    # The last column is the tracker translation (x, y, z)
-    tracker_position = np.copy(pose_matrix[:, -1])
-
-    # Zero the translation
-    pose_matrix[:, -1] = 0.0
-
-    # Ajust the rotation in the expected axis
-    tracker_direction = pose_matrix @ np.asarray([[0], [0], [-1.0], [1.0]])
-    tracker_direction = tracker_direction[:, 0]
-    tracker_direction /= np.linalg.norm(tracker_direction)
-
-    # poll for events
-    # pygame.QUIT event means the user clicked X to close your window
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_p:
-
-            print((tracker_position, tracker_direction))
-            corner_number += 1
-            ball_pos.x = pos_mapping[corner_number % 9][0]
-            ball_pos.y = pos_mapping[corner_number % 9][1]
-            screen_corners.append((tracker_position, tracker_direction))
-
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_c:
-
-            assert len(screen_corners) % 9 == 0, 'Calibration failed, please point the gun at the four corners at least twice'
-
-            calibration_dict = {}
-            for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center', 'qbl', 'qtl', 'qtr', 'qbr']):
-                print(corner)
-                corner_points = []
-                for j in range(i, len(screen_corners), 9):
-                    corner_points.append(screen_corners[j])
-                
-                point_comb = list(combinations(corner_points, 2))
-
-                comb_point = np.zeros(3)
-                for ray1, ray2 in point_comb:
-                    p1, p2 = closest_points_on_rays(ray1[0], ray1[1], ray2[0], ray2[1])
-                    mean_point = (p1 + p2) / 2
-                    comb_point += mean_point
-
-                calibration_dict[corner] = comb_point / len(point_comb)
-
-            # Add plane normal
-            calibration_dict['plane_normal'] = np.cross(calibration_dict['bottom_left'] - calibration_dict['top_left'], calibration_dict['top_right'] - calibration_dict['top_left'])
-
-            # Convert to lists
-            for key, val in calibration_dict.items():
-                calibration_dict[key] = list(val)
-
-            # Save
-            with open("calibration.json", 'w') as f:
-                json.dump(calibration_dict, f, indent=2)
-
-            print('Calibration done')
-            running=False
-
-    # Draw circle as a reference for aiming
-    pygame.draw.circle(screen, "red", ball_pos, 10)
-
-    # flip() the display to put your work on screen
-    pygame.display.flip()
-
-    # limits FPS to 60
-    # dt is delta time in seconds since last frame, used for framerate-
-    # independent physics.
-    dt = clock.tick(100) / 1000
-    print(dt)
-
-pygame.quit()
+for filename in images: 
+    image = cv2.imread(filename) 
+    # Load a test image
+    # Correct the image distortion
+    undistorted_image = cv2.undistort(image, matrix, distortion, None, new_camera_matrix)
+    # Display the original and corrected image side by side
+    combined_image = np.hstack((image, undistorted_image))
+    cv2.imshow('Original vs Undistorted', combined_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+  
+  
+# Displaying required output 
+print(" Camera matrix:") 
+print(matrix) 
+np.save("cam_matrix.npy", matrix)
+np.save("new_cam_matrix.npy", new_camera_matrix)
+np.save("distortion.npy", distortion)
+  
+print("\n Distortion coefficient:") 
+print(distortion) 
+  
+print("\n Rotation Vectors:") 
+print(r_vecs) 
+  
+print("\n Translation Vectors:") 
+print(t_vecs) 

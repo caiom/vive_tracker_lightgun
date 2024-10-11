@@ -8,7 +8,7 @@ from itertools import combinations
 from scipy.spatial.transform import Rotation
 import copy
 
-NUM_POINTS = 5
+NUM_POINTS = 4
 
 
 def project_ray_to_plane(plane_point, plane_normal, point, dir):
@@ -137,7 +137,8 @@ def calculate_pos_and_dir_from_pose(pose_matrix):
     # pose_matrix = pose_matrix @ rotation_matrix
 
     # The direction of the tracker is the -Z direction
-    tracker_direction = pose_matrix[2, :3]
+    tracker_direction = np.copy(pose_matrix[2, :3])
+    tracker_direction[2] = -tracker_direction[2]
     # tracker_direction = np.array([-pose_matrix[0, 2], pose_matrix[0, 1], -pose_matrix[0, 0]])
 
     return (tracker_position, tracker_direction)
@@ -147,7 +148,8 @@ def calculate_plane_points(screen_corners):
     calibration_dict = {}
     # calibration_dict['error'] = 0.0
     # for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center', 'qbl', 'qtl', 'qtr', 'qbr']):
-    for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center']):
+    # for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center']):
+    for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right']):
         # print(corner)
         corner_points = []
         for read, j in enumerate(range(i, len(screen_corners), NUM_POINTS)):
@@ -163,6 +165,7 @@ def calculate_plane_points(screen_corners):
         for ray1, ray2 in point_comb:
             p1, p2 = closest_points_on_rays(ray1[0], ray1[1], ray2[0], ray2[1])
             mean_point = (p1 + p2) / 2
+            print(mean_point)
             comb_points += [mean_point]
             comb_points_dist += [np.linalg.norm(p1-p2)]
 
@@ -182,7 +185,8 @@ def recalculate_plane_points(screen_corners, calib):
     # calibration_dict['plane_error'] = 0.0
 
     # for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center', 'qbl', 'qtl', 'qtr', 'qbr']):
-    for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center']):
+    # for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right', 'center']):
+    for i, corner in enumerate(['bottom_left', 'top_left', 'top_right', 'bottom_right']):
         # print(corner)
         corner_points = []
         for j in range(i, len(screen_corners), NUM_POINTS):
@@ -200,7 +204,8 @@ def recalculate_plane_points(screen_corners, calib):
 def calculate_plane(calib):
 
     # points = np.stack([calib['bottom_left'], calib['bottom_right'], calib['top_right'], calib['top_left'], calib['center'], calib['qbl'], calib['qtl'], calib['qtr'], calib['qbr']])
-    points = np.stack([calib['bottom_left'], calib['bottom_right'], calib['top_right'], calib['top_left'], calib['center']])
+    # points = np.stack([calib['bottom_left'], calib['bottom_right'], calib['top_right'], calib['top_left'], calib['center']])
+    points = np.stack([calib['bottom_left'], calib['bottom_right'], calib['top_right'], calib['top_left']])
     linear_reg = linear_model.LinearRegression()
     linear_reg.fit(points[:, :2], points[:, 2:])
     # print('pre', calib['bottom_left'][2])
@@ -579,11 +584,18 @@ pos_mapping = {0: (0, 1),
                3: (1, 1),
                4: (0.5, 0.5),}
 
+pos_mapping = {0: (0, 1),
+               1: (0, 0),
+               2: (1, 0),
+               3: (1, 1),}
+
 target_points_2d = list(pos_mapping.values())
 pose_matrices = []
-for i in range(0, 10):
-    pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\calibration_poses\\pose_matrix_{i}.npy')
+for i in range(1, 17, 2):
+    pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\pose_matrix_{i}.npy')
     pose_matrices.append(pose_matrix)
+
+print(len(pose_matrices))
 
 device_to_gun_rot = np.array([0.0, 0.0, 0.])
 # device_to_gun_rot = np.array([0.3088855 ,  0.05939724,  0.33346251,  0.03281174,  0.00630954, 0.03542247,  0.34026668,  0.06543169,  0.36734058])
@@ -594,19 +606,24 @@ device_to_gun_trans = np.array([0.0, 0.0, 0.])
 # errors = error_function2(device_to_gun, pose_matrices, target_points_2d)
 # print(errors)
 
-bounds_low_rot = [-35 for _ in range(3)]
-bounds_low_trans = [-300 for _ in range(3)]
+bounds_x = 50
+bounds_y = 100
+bounds_z = 300 
+angle_bound = 25
+
+bounds_low_rot = [-angle_bound for _ in range(3)]
+bounds_low_trans = [-bounds_x, -bounds_y, -bounds_z]
 bounds_low = bounds_low_rot + bounds_low_trans
 
 
-bounds_high_rot = [35 for _ in range(3)]
-bounds_high_trans = [300 for _ in range(3)]
+bounds_high_rot = [angle_bound for _ in range(3)]
+bounds_high_trans = [bounds_x, bounds_y, bounds_z]
 bounds_high = bounds_high_rot + bounds_high_trans
 
 
 
-rot_bounds = [(-35, 35) for _ in range(3)]
-trans_bounds = [(-300.0, 300.0) for _ in range(3)]
+rot_bounds = [(-angle_bound, angle_bound) for _ in range(3)]
+trans_bounds = [(neg, pos) for neg, pos in zip(bounds_low_trans, bounds_high_trans)]
 dif_e_bounds = rot_bounds + trans_bounds
 
 base_matrix = np.eye(4)
@@ -627,7 +644,9 @@ bounds_high_double = bounds_high + bounds_high
 
 st = time.time()
 print('Initial Error')
-print(error_function3(device_to_gun_rot_trans, base_matrix, pose_matrices, target_points_2d, 'both', True))
+print(error_function3(device_to_gun_rot_trans, base_matrix, pose_matrices, target_points_2d, 'both', True, True))
+import sys
+sys.exit(0)
 errors = error_function3(device_to_gun_rot_trans, base_matrix, pose_matrices, target_points_2d, 'both', False)
 print(errors)
 
@@ -672,6 +691,9 @@ print(error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both
 errors = error_function3(res.x, base_matrix, pose_matrices, target_points_2d, 'both', False, False)
 
 print_errors(errors)
+
+import sys
+sys.exit(0)
 
 
 print(res)
