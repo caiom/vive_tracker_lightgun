@@ -20,16 +20,13 @@ else:
 # Set resolution (e.g., 1280x720 for HD resolution)
 # width = 1280
 # height = 720
-width = 1280
-height = 800
+width = 1920
+height = 1080
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-
-print(cap.get(cv2.CAP_PROP_EXPOSURE))
-print(cap.get(cv2.CAP_PROP_AUTO_EXPOSURE))
 cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
-cap.set(cv2.CAP_PROP_EXPOSURE, -12) 
-cap.set(cv2.CAP_PROP_GAIN, 100)
+cap.set(cv2.CAP_PROP_EXPOSURE, -9) 
+cap.set(cv2.CAP_PROP_GAIN, 0)
 cap.set(cv2.CAP_PROP_FPS, 120.0)
 cap.set(cv2.CAP_PROP_FOURCC, 0x47504A4D)
 
@@ -59,9 +56,9 @@ frame_number = 0
 while True:
     # Capture frame-by-frame
     ret, frame = cap.read()
-    sremap = time.time()
-    frame = cv2.remap(frame, mapx, mapy, interpolation=cv2.INTER_LINEAR)
-    print(f"Time to remap: {time.time()-sremap}")
+    # sremap = time.time()
+    # frame = cv2.remap(frame, mapx, mapy, interpolation=cv2.INTER_LINEAR)
+    # print(f"Time to remap: {time.time()-sremap}")
     # frame = cv2.undistort(frame, cam_matrix, dist, None, cam_matrix)
 
 

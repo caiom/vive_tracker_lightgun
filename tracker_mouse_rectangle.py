@@ -116,14 +116,17 @@ windows_cursor = WindowsCursor(monitor.width, monitor.height)
 mame_cursor = MAMECursor(monitor.width, monitor.height)
 
 # Load calibration
-with open("calibration_new_1.json", 'r') as f:
-    calib = json.load(f)
+transform_to_aim = np.load("transform_to_aim.npy")
+x_opt = np.load("rectangle_params.npy")
+    
+C_opt = x_opt[0:3]
+u_opt = x_opt[3:6]
+v_opt = x_opt[6:9]
+l_u_opt = x_opt[9] + 0.0625 * x_opt[9]
+l_v_opt = x_opt[10] + 0.11111111111111111 * x_opt[10]
 
-# Convert calib to numpy arrays
-for key, val in calib.items():
-    calib[key] = np.asfarray(val)
-
-device_to_gun_1 = np.load('device_to_gun_1.npy')
+N_opt = np.cross(u_opt, v_opt)
+N_opt /= np.linalg.norm(N_opt)
 
 mouse_buttom = 0
 frame = 0
@@ -140,16 +143,20 @@ while mode != 'exit':
 
     pose_matrix = np.copy(pose_matrix)
 
-    pose_matrix = pose_matrix @ device_to_gun_1
+    pose_matrix = pose_matrix @ transform_to_aim
 
     tracker_position, tracker_direction = calculate_pos_and_dir_from_pose(pose_matrix)
 
-    # controller_input = v.devices["tracker_1"].get_controller_inputs()
+    denom = np.dot(tracker_direction, N_opt)
+    numerator = np.dot(C_opt - tracker_position, N_opt)
+    t = numerator / denom
+    P_intersect = tracker_position + t * tracker_direction
+    V = P_intersect - C_opt
+    a = np.dot(V, u_opt)
+    b = np.dot(V, v_opt)
 
-    p_screen = project_ray_to_plane(calib['top_left'], calib['plane_normal'], tracker_position, tracker_direction)
-
-    # Project point into the u/v screen coordinate system
-    u_coord, v_coord = point_to_uv_coordinates_multi(calib, p_screen)
+    u_coord = (a + l_u_opt) / (2 * l_u_opt)
+    v_coord = (l_v_opt - b) / (2 * l_v_opt)
 
     if math.isnan(u_coord) or math.isnan(v_coord):
         time.sleep(0.002)
@@ -186,6 +193,8 @@ while mode != 'exit':
             mouse.update_position(pos_x, pos_y)
         target_x, target_y = mame_cursor.process_target(u_coord, v_coord)
         mouse.move_mouse_absolute(target_x, target_y, mouse_buttom)
+
+    time.sleep(0.002)
 
 mouse.close()
 mame_cursor.close()

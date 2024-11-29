@@ -109,6 +109,146 @@ def draw_axes_with_text(img, camera_matrix, dist_coeffs, rvec, tvec, z_vector, a
     
     return img
 
+def get_object_points_p2(blobs_position):
+    sort_y = sorted(blobs_position, key=lambda x: x[1])
+
+    sort_middle = sorted([sort_y[1], sort_y[2], sort_y[3]], key=lambda x: x[0])
+    sort_bottom = sorted([sort_y[4], sort_y[5]], key=lambda x: x[0])
+
+    top_right = sort_y[0]
+    middle_left = sort_middle[0]
+    middle_center = sort_middle[1]
+    middle_right = sort_middle[2]
+    bottom_left = sort_bottom[0]
+    bottom_right = sort_bottom[1]
+
+    return np.array([top_right, middle_left, middle_center, middle_right, bottom_left, bottom_right])
+
+def get_object_points_p3(blobs_position):
+    sort_y = sorted(blobs_position, key=lambda x: x[1])
+
+    sort_middle = sorted([sort_y[1], sort_y[2], sort_y[3]], key=lambda x: x[0])
+    sort_bottom = sorted([sort_y[4], sort_y[5], sort_y[6]], key=lambda x: x[0])
+
+    top_right = sort_y[0]
+    middle_left = sort_middle[0]
+    middle_center = sort_middle[1]
+    middle_right = sort_middle[2]
+    bottom_left = sort_bottom[0]
+    bottom_center = sort_bottom[1]
+    bottom_right = sort_bottom[2]
+
+    return np.array([top_right, middle_left, middle_center, middle_right, bottom_left, bottom_center, bottom_right])
+
+def get_object_points_p1(blobs_position):
+    sort_y = sorted(blobs_position, key=lambda x: x[1])
+
+    sort_middle = sorted([sort_y[1], sort_y[2]], key=lambda x: x[0])
+    sort_bottom = sorted([sort_y[3], sort_y[4]], key=lambda x: x[0])
+
+    top_right = sort_y[0]
+    middle_left = sort_middle[0]
+    middle_right = sort_middle[1]
+    bottom_left = sort_bottom[0]
+    bottom_right = sort_bottom[1]
+
+    return np.array([top_right, middle_left, middle_right, bottom_left, bottom_right])
+
+def get_object_points_p4(blobs_position):
+    sort_y = sorted(blobs_position, key=lambda x: x[1])
+
+    sort_middle = sorted([sort_y[1], sort_y[2], sort_y[3]], key=lambda x: x[0])
+
+    top_center = sort_y[0]
+    middle_left = sort_middle[0]
+    middle_center = sort_middle[1]
+    middle_right = sort_middle[2]
+    bottom = sort_y[-1]
+
+    return np.array([top_center, middle_left, middle_center, middle_right, bottom])
+
+
+def get_object_points_p5(blobs_position):
+    sort_y = sorted(blobs_position, key=lambda x: x[1])
+
+    sort_middle = sorted(sort_y[1:6], key=lambda x: x[0])
+
+    top_center = sort_y[0]
+    middle_left = sort_middle[0]
+    middle_left_center = sort_middle[1]
+    middle_center = sort_middle[2]
+    middle_right_center = sort_middle[3]
+    middle_right = sort_middle[4]
+    bottom_top = sort_y[-2]
+    bottom = sort_y[-1]
+
+    return np.array([top_center, 
+                     middle_left, 
+                     middle_left_center, 
+                     middle_center, 
+                     middle_right_center,
+                     middle_right, 
+                     bottom_top, 
+                     bottom])
+
+object_points_p2 = np.array([
+    [-30, -25, 0],    # top right
+    [-30, 0, 0],     # middle left
+    [0, 0, -10],     # middle center
+    [30, 0, 0],     # middle right
+    [-30, 25, 0],    # bottom left
+    [30, 25, 0]    # bottom right
+], dtype=np.float32)
+
+object_points_p3 = np.array([
+    [-30, -25, 0],    # top right
+    [-30, 0, 0],     # middle left
+    [0, 0, 0],     # middle center
+    [30, 0, 0],     # middle right
+    [-30, 25, 0],    # bottom left
+    [0, 25, 0],    # bottom center
+    [30, 25, 0]    # bottom right
+], dtype=np.float32)
+
+object_points_p1 = np.array([
+    [-30, -25, 0],    # top right
+    [-30, 0, 0],     # middle left
+    [30, 0, 0],     # middle right
+    [-30, 25, 0],    # bottom left
+    [30, 25, 0]    # bottom right
+], dtype=np.float32)
+
+object_points_p4 = np.array([
+    [0, 0, 0],    # top center
+    [-45, 45.5, 0],     # middle left
+    [0, 45.5, 0],     # middle center
+    [45, 45.5, 0],     # middle right
+    [0, 100, 0],    # bottom
+], dtype=np.float32)
+
+object_points_p5 = np.array([
+    [0, 0, 0],    # top center
+    [-60, 45.5, 0],     # middle left
+    [-30, 45.5, 0],     # middle left-center
+    [0, 45.5, -10],     # middle center
+    [30, 45.5, 0],     # middle right center
+    [60, 45.5, 0],     # middle right
+    [0, 72.75, 0],     # bottom top
+    [0, 100, 0],    # bottom
+], dtype=np.float32)
+
+# object_points_p1 = np.array([
+#     [-60, -50, 0],    # top right
+#     [-60, 0, 0],     # middle left
+#     [60, 0, 0],     # middle right
+#     [-60, 50, 0],    # bottom left
+#     [60, 50, 0]    # bottom right
+# ], dtype=np.float32)
+
+object_points = object_points_p5
+get_object_points = get_object_points_p5
+num_obj_points = object_points.shape[0]
+
 # Open the default camera (usually the webcam)
 cap = cv2.VideoCapture(0)
 
@@ -125,13 +265,13 @@ else:
     print("Failed to set focus. Your camera may not support focus control.")
 
 # Set resolution (e.g., 1280x720 for HD resolution)
-width = 1280
-height = 800
+width = 1920
+height = 1080
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
-cap.set(cv2.CAP_PROP_EXPOSURE, -12) 
-cap.set(cv2.CAP_PROP_GAIN, 100)
+cap.set(cv2.CAP_PROP_EXPOSURE, -10) 
+cap.set(cv2.CAP_PROP_GAIN, 0)
 cap.set(cv2.CAP_PROP_FPS, 120.0)
 cap.set(cv2.CAP_PROP_FOURCC, 0x47504A4D)
 
@@ -143,7 +283,7 @@ print(f"Resolution set to: {int(current_width)}x{int(current_height)}")
 
 real_ball_diameter = 19.9
 
-cam_matrix = np.load("cam_matrix.npy")
+cam_matrix = np.load("new_cam_matrix.npy")
 dist = np.load("distortion.npy")
 mapx = np.load("mapx.npy")
 mapy = np.load("mapy.npy")
@@ -160,11 +300,12 @@ prev_translation_vector = None
 # Loop to continuously grab frames from the webcam
 while True:
     # Capture frame-by-frame
+    sread = time.perf_counter()
     ret, frame = cap.read()
+    # print(f"time to read: {time.perf_counter()-sread}")
+    sproc = time.perf_counter()
+    frame = cv2.flip(frame, 1)
     frame = cv2.remap(frame, mapx, mapy, interpolation=cv2.INTER_LINEAR)
-    # frame = cv2.undistort(frame, cam_matrix, dist, None, cam_matrix)
-    # print(cap.get(cv2.CAP_PROP_EXPOSURE))
-
 
     # If the frame was not grabbed correctly, break the loop
     if not ret:
@@ -175,33 +316,41 @@ while True:
     gray_image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray_image, 80, 255, cv2.THRESH_BINARY)
 
-    num_labels, labels_im = cv2.connectedComponents(thresh)
-    print(num_labels)
+    num_labels, labels_im, stats, centroids = cv2.connectedComponentsWithStats(thresh)
+
+    # if num_labels <= num_obj_points:
+    #     continue
 
     # Collect blob statistics
     blob_stats = []
     for label in range(1, num_labels):
-        # Create a mask for the current blob
-        blob_mask = labels_im == label
-        perc_25 = np.percentile(gray_image[blob_mask], 25)
-        blob_mask = blob_mask.astype(np.uint8) * 255
+        # Extract statistics directly from 'stats'
+        x, y, w, h, area = stats[label]
 
-        # Find contours of the blob
-        contours, _ = cv2.findContours(blob_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            cnt = contours[0]
-            area = cv2.contourArea(cnt)
-            if area > 4:  # Filter out small blobs
-                x, y, w, h = cv2.boundingRect(cnt)
-                blob_stats.append({'label': label, 'x': x, 'y': y, 'w': w, 'h': h, 'area': area, "perc_25": perc_25})
+        if area > 4:  # Filter out small blobs
+            # Define the ROI for the current blob
+            roi_labels = labels_im[y:y+h, x:x+w]
+            roi_gray = gray_image[y:y+h, x:x+w]
 
+            # Create a mask for the current blob within the ROI
+            blob_mask = roi_labels == label
 
-    # for blob in blob_stats:
-    #     print(blob)
+            # Calculate the 50th percentile within the blob mask
+            perc_25 = np.percentile(roi_gray[blob_mask], 50)
 
-    if len(blob_stats) > 6:
+            blob_stats.append({
+                'label': label,
+                'x': x,
+                'y': y,
+                'w': w,
+                'h': h,
+                'area': area,
+                'perc_25': perc_25
+            })
+
+    if len(blob_stats) > num_obj_points:
         blob_stats = sorted(blob_stats, key=lambda x: x["area"], reverse=True)
-        blob_stats = blob_stats[:6]
+        blob_stats = blob_stats[:num_obj_points]
 
     blobs_position = []
 
@@ -209,7 +358,7 @@ while True:
         x, y, w, h = blob['x'], blob['y'], blob['w'], blob['h']
 
         # Expand the bounding rectangle
-        padding = 4
+        padding = 2
         x1 = max(x - padding, 0)
         y1 = max(y - padding, 0)
         x2 = min(x + w + padding, gray_image.shape[1] - 1)
@@ -226,45 +375,9 @@ while True:
 
         blobs_position.append((blob_x, blob_y))
 
-    if len(blobs_position) == 6:
+    if len(blobs_position) == num_obj_points:
 
-        
-        sort_y = sorted(blobs_position, key=lambda x: x[1])
-
-        sort_middle = sorted([sort_y[1], sort_y[2], sort_y[3]], key=lambda x: x[0])
-        sort_bottom = sorted([sort_y[4], sort_y[5]], key=lambda x: x[0])
-
-        top_right = sort_y[0]
-        middle_left = sort_middle[0]
-        middle_center = sort_middle[1]
-        middle_right = sort_middle[2]
-        bottom_left = sort_bottom[0]
-        bottom_right = sort_bottom[1]
-
-        # print(blob_left_pos, blob_right_pos, blob_top_pos, blob_bottom_pos)
-
-        ball_positions = np.array([top_right, middle_left, middle_center, middle_right, bottom_left, bottom_right])
-
-        print(ball_positions)
-
-        object_points = np.array([
-            [30, 25, 0],    # top right
-            [-30, 0, 0],     # middle left
-            [0, 0, 10],     # middle center
-            [30, 0, 0],     # middle right
-            [-30, -25, 0],    # bottom left
-            [30, -25, 0]    # bottom right
-        ], dtype=np.float32)
-
-
-        object_points = np.array([
-            [-30, 25, 0],    # top right
-            [30, 0, 0],     # middle left
-            [0, 0, 10],     # middle center
-            [-30, 0, 0],     # middle right
-            [30, -25, 0],    # bottom left
-            [-30, -25, 0]    # bottom right
-        ], dtype=np.float32)
+        ball_positions = get_object_points(blobs_position)
 
         # if prev_translation_vector is not None:
         #     success, rotation_vector, translation_vector = cv2.solvePnP(
@@ -286,7 +399,7 @@ while True:
             flags=cv2.SOLVEPNP_SQPNP,
         )
 
-        print(success)
+        # print(success)
         #cv2.SOLVEPNP_EPNP
         #cv2.SOLVEPNP_ITERATIVE
         #cv2.SOLVEPNP_IPPE
@@ -307,8 +420,8 @@ while True:
         prev_rotation_vector = rotation_vector
         prev_translation_vector = translation_vector
 
-        print("Rotation Matrix:\n", rotation_vector)
-        print("Translation Vector:\n", translation_vector)
+        # print("Rotation Matrix:\n", rotation_vector)
+        # print("Translation Vector:\n", translation_vector)
 
         # Assuming you have an image loaded as 'img'
         img_with_axes = draw_axes_with_text(
@@ -323,6 +436,9 @@ while True:
         cv2.imshow('Image', img_with_axes)
     cv2.imshow('Gray Image', gray_image)
     cv2.imshow('Detected White', thresh)
+
+
+    # print(f"time to proc: {time.perf_counter()-sproc}")
 
     key = cv2.waitKey(1) & 0xFF
 

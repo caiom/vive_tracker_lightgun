@@ -2,6 +2,7 @@ import cv2
 import numpy as np 
 import os 
 import glob 
+import pathlib as pl
   
   
 # Define the dimensions of checkerboard 
@@ -34,7 +35,8 @@ prev_img_shape = None
 # in a given directory. Since no path is 
 # specified, it will take current directory 
 # jpg files alone 
-images = glob.glob('C:\\Users\\v3n0w\\Downloads\\Camera\\calib_images_cam_2\\*.png') 
+base_path = pl.Path("C:\\Users\\v3n0w\\Downloads\\Camera\\vive_tracker_lightgun\\calib_images_icam_8mm")
+images = list(base_path.glob("*.png"))
   
 for filename in images: 
     image = cv2.imread(filename) 
@@ -68,8 +70,8 @@ for filename in images:
                                           CHECKERBOARD,  
                                           corners2, ret) 
   
-    cv2.imshow('img', image)
-    cv2.waitKey(0) 
+    # cv2.imshow('img', image)
+    # cv2.waitKey(0)  
   
 cv2.destroyAllWindows() 
   
@@ -90,8 +92,8 @@ mapx, mapy = cv2.initUndistortRectifyMap(
     matrix, distortion, None, new_camera_matrix, image_size, cv2.CV_32FC1
 )
 
-np.save("mapx.npy", mapx)
-np.save("mapy.npy", mapy)
+np.save(str(base_path / "mapx.npy"), mapx)
+np.save(str(base_path / "mapy.npy"), mapy)
 
 
 for filename in images: 
@@ -103,15 +105,15 @@ for filename in images:
     combined_image = np.hstack((image, undistorted_image))
     cv2.imshow('Original vs Undistorted', combined_image)
     cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # cv2.destroyAllWindows()
   
   
 # Displaying required output 
 print(" Camera matrix:") 
 print(matrix) 
-np.save("cam_matrix.npy", matrix)
-np.save("new_cam_matrix.npy", new_camera_matrix)
-np.save("distortion.npy", distortion)
+np.save(str(base_path / "cam_matrix.npy"), matrix)
+np.save(str(base_path / "new_cam_matrix.npy"), new_camera_matrix)
+np.save(str(base_path / "distortion.npy"), distortion)
   
 print("\n Distortion coefficient:") 
 print(distortion) 

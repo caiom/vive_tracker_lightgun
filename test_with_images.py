@@ -1,7 +1,37 @@
 #%%
+import ctypes
 import cv2
 import numpy as np
 import time
+from skimage import measure
+ntdll = ctypes.WinDLL('NTDLL.DLL')
+
+NSEC_PER_SEC = 1000000000
+
+
+def set_resolution_ns(resolution):
+    """Set resolution of system timer.
+
+    See `NtSetTimerResolution`
+
+    http://undocumented.ntinternals.net/index.html?page=UserMode%2FUndocumented%20Functions%2FTime%2FNtSetTimerResolution.html
+    http://www.windowstimestamp.com/description
+    https://bugs.python.org/issue13845
+
+    """
+    # NtSetTimerResolution uses 100ns units
+    resolution = ctypes.c_ulong(int(resolution // 100))
+    current = ctypes.c_ulong()
+
+    r = ntdll.NtSetTimerResolution(resolution, 1, ctypes.byref(current))
+
+    # NtSetTimerResolution uses 100ns units
+    return current.value * 100
+
+def set_resolution(resolution):
+    return set_resolution_ns(resolution * NSEC_PER_SEC) / NSEC_PER_SEC
+
+set_resolution(1e-5)
 
 def calculate_center_of_blob(image: np.ndarray, max_val):
     """
@@ -164,8 +194,9 @@ num_obj_points = object_points.shape[0]
 
 num_frame = 7
 # images = glob.glob('C:\\Users\\v3n0w\\Downloads\\Camera\\calib_images_cam_2\\*.png') 
-filename = f"C:\\Users\\v3n0w\\Downloads\\Camera\\pattern_1_images\\gun_frame_{num_frame}.png"
+filename = f"C:\\Users\\v3n0w\\Downloads\\Camera\\sample_0.png"
 
+new_cam_matrix = np.load("new_cam_matrix.npy")
 cam_matrix = np.load("cam_matrix.npy")
 dist = np.load("distortion.npy")
 mapx = np.load("mapx.npy")
@@ -174,39 +205,99 @@ mapy = np.load("mapy.npy")
 frame = cv2.imread(filename) 
 frame = cv2.flip(frame, 1)
 
-stotal = time.time()
-scolor = time.time()
+stotal = time.perf_counter()
+scolor = time.perf_counter()
 gray_image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) 
-print(f"Time color: {time.time()-scolor}")
-sremap = time.time()
-gray_image = cv2.remap(gray_image, mapx, mapy, interpolation=cv2.INTER_LINEAR)
-print(f"time remap: {time.time()-sremap}")
+gray_image = frame[:, :, 0]
+print(f"Time color: {time.perf_counter()-scolor}")
+sremap = time.perf_counter()
+# gray_image = cv2.remap(gray_image, mapx, mapy, interpolation=cv2.INTER_LINEAR)
+print(f"time remap: {time.perf_counter()-sremap}")
 
 
-sthco = time.time()
-_, thresh = cv2.threshold(gray_image, 80, 255, cv2.THRESH_BINARY)
-
+sthco = time.perf_counter()
+# _, thresh = cv2.threshold(gray_image, 80, 255, cv2.THRESH_BINARY)
+thresh = (gray_image > 80).astype(np.uint8)
+print(f"time sthco: {time.perf_counter()-sthco}")
 num_labels, labels_im = cv2.connectedComponents(thresh)
 
-print(f"time sthco: {time.time()-sthco}")
-print(num_labels)
+print(f"time total: {time.perf_counter()-stotal}")
+
+stotal = time.perf_counter()
+scolor = time.perf_counter()
+gray_image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) 
+# gray_image = frame[:, :, 0]
+print(f"Time color: {time.perf_counter()-scolor}")
+sremap = time.perf_counter()
+# gray_image = cv2.remap(gray_image, mapx, mapy, interpolation=cv2.INTER_LINEAR)
+
+print(f"time remap: {time.perf_counter()-sremap}")
+
+
+sthco = time.perf_counter()
+_, thresh = cv2.threshold(gray_image, 80, 255, cv2.THRESH_BINARY)
+# thresh = (gray_image > 80).astype(np.uint8)
+# num_labels, labels_im = cv2.connectedComponents(thresh)
+
+# print(f"time total: {time.perf_counter()-stotal}")
+
+
+# print(num_labels)
+# sblobstats = time.time()
+# # Collect blob statistics
+# blob_stats = []
+# for label in range(1, num_labels):
+#     # Create a mask for the current blob
+#     smask = time.time()
+#     blob_mask = labels_im == label
+#     perc_25 = np.percentile(gray_image[blob_mask], 50)
+#     print(f"time smask: {time.time()-smask}")
+#     blob_mask = blob_mask.astype(np.uint8)
+    
+    
+
+#     scontours = time.time()
+#     # Find contours of the blob
+#     contours, _ = cv2.findContours(blob_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+#     if contours:
+#         cnt = contours[0]
+#         area = cv2.contourArea(cnt)
+#         if area > 4:  # Filter out small blobs
+#             x, y, w, h = cv2.boundingRect(cnt)
+#             blob_stats.append({'label': label, 'x': x, 'y': y, 'w': w, 'h': h, 'area': area, "perc_25": perc_25})
+#     print(f"time scontours: {time.time()-scontours}")
+
+num_labels, labels_im, stats, centroids = cv2.connectedComponentsWithStats(thresh)
+
+print(f"time sthco: {time.perf_counter()-sthco}")
+
 sblobstats = time.time()
 # Collect blob statistics
 blob_stats = []
 for label in range(1, num_labels):
-    # Create a mask for the current blob
-    blob_mask = labels_im == label
-    perc_25 = np.percentile(gray_image[blob_mask], 25)
-    blob_mask = blob_mask.astype(np.uint8) * 255
+    # Extract statistics directly from 'stats'
+    x, y, w, h, area = stats[label]
 
-    # Find contours of the blob
-    contours, _ = cv2.findContours(blob_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        cnt = contours[0]
-        area = cv2.contourArea(cnt)
-        if area > 4:  # Filter out small blobs
-            x, y, w, h = cv2.boundingRect(cnt)
-            blob_stats.append({'label': label, 'x': x, 'y': y, 'w': w, 'h': h, 'area': area, "perc_25": perc_25})
+    if area > 4:  # Filter out small blobs
+        # Define the ROI for the current blob
+        roi_labels = labels_im[y:y+h, x:x+w]
+        roi_gray = gray_image[y:y+h, x:x+w]
+
+        # Create a mask for the current blob within the ROI
+        blob_mask = roi_labels == label
+
+        # Calculate the 50th percentile within the blob mask
+        perc_25 = np.percentile(roi_gray[blob_mask], 50)
+
+        blob_stats.append({
+            'label': label,
+            'x': x,
+            'y': y,
+            'w': w,
+            'h': h,
+            'area': area,
+            'perc_25': perc_25
+        })
 
 print(f"time sblobstats: {time.time()-sblobstats}")
 # for blob in blob_stats:
@@ -223,7 +314,7 @@ for blob_id, blob in enumerate(blob_stats):
     x, y, w, h = blob['x'], blob['y'], blob['w'], blob['h']
 
     # Expand the bounding rectangle
-    padding = 4
+    padding = 2
     x1 = max(x - padding, 0)
     y1 = max(y - padding, 0)
     x2 = min(x + w + padding, gray_image.shape[1] - 1)
@@ -258,15 +349,15 @@ if len(blobs_position) == num_obj_points:
     #         flags=cv2.SOLVEPNP_ITERATIVE,
     #     )
     # else:
-    spnp = time.time()
+    spnp = time.perf_counter()
     success, rotation_vector, translation_vector = cv2.solvePnP(
         object_points,
         ball_positions,
         cam_matrix,
-        None,
+        dist,
         flags=cv2.SOLVEPNP_SQPNP,
     )
-    print(f"time pnp: {time.time()-spnp}")
+    print(f"time pnp: {time.perf_counter()-spnp}")
 
     print(success)
     #cv2.SOLVEPNP_EPNP
@@ -287,7 +378,7 @@ if len(blobs_position) == num_obj_points:
 
     rotation_matrix, _ = cv2.Rodrigues(rotation_vector) 
 
-    print(f"time total: {time.time()-stotal}")
+    print(f"time total: {time.perf_counter()-stotal}")
 
     prev_rotation_vector = rotation_vector
     prev_translation_vector = translation_vector

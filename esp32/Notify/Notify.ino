@@ -33,8 +33,20 @@ bool deviceConnected = false;
 bool oldDeviceConnected = false;
 uint32_t value = 0;
 
-#define BTN 10 // Internal LED pin is 8 as per schematic
+#define BTN_TRIGGER 10
+#define BTN_A 7
+#define BTN_B 21
+
+#define SOLENOID 2
+
 int lastButtonState = 0;
+
+
+int triggerStartPress = 0;
+int triggerTimePressed = 0;
+int triggerTimeReleased = 0;
+int triggerTimeSinceRelease = 0;
+int triggerLastState = HIGH;
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -59,7 +71,11 @@ class MyServerCallbacks : public BLEServerCallbacks {
 
 void setup() {
 
-  pinMode(BTN, INPUT_PULLUP);
+  pinMode(BTN_TRIGGER, INPUT_PULLUP);
+  pinMode(BTN_A, INPUT_PULLUP);
+  pinMode(BTN_B, INPUT_PULLUP);
+
+  pinMode(SOLENOID, OUTPUT);
   
   Serial.begin(115200);
 
@@ -101,8 +117,33 @@ void setup() {
 
 void loop() {
   // notify changed value
-  if (deviceConnected) {
-    int buttonState = digitalRead(BTN);
+
+  int buttonState = 0;
+  int triggerState = digitalRead(BTN_TRIGGER);
+  buttonState |= triggerState;
+  buttonState |= digitalRead(BTN_A) << 2;
+  buttonState |= digitalRead(BTN_B) << 3;
+
+  if (triggerState == LOW && triggerLastState == HIGH)
+     {
+      triggerStartPress = millis();
+      digitalWrite(SOLENOID, HIGH);
+      triggerLastState = LOW;
+      Serial.println("Pressed");
+      Serial.print(triggerStartPress);
+    }
+
+    if (triggerState == HIGH && triggerLastState == LOW) 
+    {
+    triggerLastState = HIGH;
+    triggerStartPress = 0;
+    triggerTimeReleased = millis();
+    Serial.println("Released");
+    digitalWrite(SOLENOID, LOW);
+  }
+
+  if (deviceConnected) 
+  {
     if (buttonState != lastButtonState)
     {
       lastButtonState = buttonState;
@@ -110,8 +151,34 @@ void loop() {
       pCharacteristic->notify();
       Serial.println("Sending notification...");
     }
-    delay(1);
   }
+
+    
+
+
+
+  if (triggerState == LOW) {
+    triggerTimePressed = millis() - triggerStartPress;
+
+    if (triggerTimePressed >= 25 && triggerTimePressed <= 300)
+    {
+      digitalWrite(SOLENOID, LOW);
+    }
+
+    if (triggerTimePressed > 300) 
+    {
+      int cycle_pos = triggerTimePressed % 125;
+      if (cycle_pos >= 50 && cycle_pos < 75)
+      {
+        digitalWrite(SOLENOID, HIGH);
+      }
+      else
+      {
+        digitalWrite(SOLENOID, LOW);
+      }
+    }
+  }
+
   // disconnecting
   if (!deviceConnected && oldDeviceConnected) {
     delay(500);                   // give the bluetooth stack the chance to get things ready
@@ -124,4 +191,6 @@ void loop() {
     // do stuff here on connecting
     oldDeviceConnected = deviceConnected;
   }
+
+  delay(1);
 }

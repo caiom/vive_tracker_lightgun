@@ -16,8 +16,8 @@ else:
     print("Failed to set focus. Your camera may not support focus control.")
 
 # Set resolution (e.g., 1280x720 for HD resolution)
-width = 1280
-height = 800
+width = 1920
+height = 1080
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 cap.set(cv2.CAP_PROP_FPS, 120.0)

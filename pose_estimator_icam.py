@@ -1,6 +1,10 @@
+import threading
 import cv2
 import numpy as np
 from typing import Optional, Tuple
+from icamera import ICamera
+import time
+import concurrent.futures
 
 def get_object_points_p2(blobs_position):
     sort_y = sorted(blobs_position, key=lambda x: x[1])
@@ -148,7 +152,7 @@ object_points_p5_large = np.array([
     [0, 98, 0],    # bottom
 ], dtype=np.float32)
 
-object_points = object_points_p5
+object_points = object_points_p5_large
 get_object_points = get_object_points_p5
 num_obj_points = object_points.shape[0]
 
@@ -158,39 +162,47 @@ class PoseEstimator:
         Initializes the PoseEstimator by setting up the camera and loading calibration data.
         """
         # Open the default camera (usually the webcam)
-        self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            raise ValueError("Error: Could not open video stream.")
-
-        # Try to set focus (if supported by the webcam)
-        focus_value = 10  # Adjust based on camera capabilities
-        self.cap.set(cv2.CAP_PROP_FOCUS, focus_value)
-
-        # Set camera properties
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, -9)
-        self.cap.set(cv2.CAP_PROP_GAIN, 0)
-        self.cap.set(cv2.CAP_PROP_FPS, 120.0)
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        self.cam = ICamera()
 
         # Load calibration data
-        self.cam_matrix = np.load("new_cam_matrix.npy")
-        self.dist_coeffs = np.load("distortion.npy")
-        self.mapx = np.load("mapx.npy")
-        self.mapy = np.load("mapy.npy")
+        base_path = "C:\\Users\\v3n0w\\Downloads\\Camera\\vive_tracker_lightgun\\calib_images_icam_8mm\\"
+        self.cam_matrix = np.load(base_path + "new_cam_matrix.npy")
+        self.dist_coeffs = np.load(base_path + "distortion.npy")
+        self.mapx = np.load(base_path + "mapx.npy")
+        self.mapy = np.load(base_path + "mapy.npy")
 
         # Initialize previous rotation and translation vectors
         self.prev_rotation_vector = None
         self.prev_translation_vector = None
 
+        # Pose storage
+        self._pose_matrix = None
+        self._pose_lock = threading.Lock()
+
+        # Thread control
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._pose_thread, daemon=True)
+
+        # Initialize ThreadPoolExecutor
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)  # Adjust as needed
+
+        # Start the background thread
+        self._thread.start()
+
     def __del__(self):
         """
         Releases the camera resource when the instance is destroyed.
         """
-        if self.cap.isOpened():
-            self.cap.release()
+        self.cam.cleanup()
+
+    def cleanup(self):
+        """
+        Stops the background thread and releases the camera resource.
+        """
+        self._stop_event.set()
+        self._thread.join(timeout=1.0)
+        self.executor.shutdown(wait=True)  # Shutdown the executor
+        self.cam.cleanup()
 
     @staticmethod
     def calculate_center_of_blob(image: np.ndarray, max_val: float) -> Optional[Tuple[float, float]]:
@@ -215,7 +227,7 @@ class PoseEstimator:
             # No white pixels in the image
             return None
 
-        img[img > max_val] = max_val
+        # img[img > max_val] = max_val
 
         # Normalize the pixel values to get weights in [0, 1]
         weights = img / max_val
@@ -238,29 +250,83 @@ class PoseEstimator:
         y_center = (weighted_sum_y / total_weight) + 0.5
 
         return (x_center, y_center)
-
-    def get_pose(self) -> Optional[np.ndarray]:
+    
+    def _process_blob(self, blob: dict, gray_image: np.ndarray) -> Optional[Tuple[float, float]]:
         """
-        Captures a frame from the camera, processes it to detect blobs, and computes the pose.
+        Processes a single blob to calculate its center.
+
+        Parameters:
+        - blob (dict): A dictionary containing blob statistics.
+        - gray_image (np.ndarray): The grayscale image.
+
+        Returns:
+        - tuple: (x_center, y_center) coordinates of the blob's center.
+        - None: If the center cannot be determined.
+        """
+        x, y, w, h = blob['x'], blob['y'], blob['w'], blob['h']
+        perc_25 = blob['perc_25']
+
+        # Expand the bounding rectangle
+        padding = 2
+        x1 = max(x - padding, 0)
+        y1 = max(y - padding, 0)
+        x2 = min(x + w + padding, gray_image.shape[1] - 1)
+        y2 = min(y + h + padding, gray_image.shape[0] - 1)
+
+        # Crop the region of interest
+        cropped_grad = gray_image[y1:y2, x1:x2].copy()  # To avoid modifying the original image
+        background_noise = np.percentile(cropped_grad[cropped_grad < perc_25], 10)
+        cropped_grad[cropped_grad < background_noise] = 0
+        cropped_grad[cropped_grad >= background_noise] = cropped_grad[cropped_grad >= background_noise] - background_noise
+        cropped_grad[cropped_grad > perc_25] = perc_25
+
+        # Calculate the center of the blob
+        center = self.calculate_center_of_blob(cropped_grad, perc_25)
+        if center is not None:
+            blob_x, blob_y = center
+            blob_x += x1
+            blob_y += y1
+            return (blob_x, blob_y)
+
+        return None
+    
+    def _pose_thread(self):
+        """
+        The background thread that continuously captures frames and computes the pose.
+        """
+        while not self._stop_event.is_set():
+            pose = self._compute_pose()
+            if pose is not None:
+                with self._pose_lock:
+                    self._pose_matrix = pose
+
+    def _compute_pose(self) -> Optional[np.ndarray]:
+        """
+        Captures a frame, processes it, and computes the pose.
 
         Returns:
         - np.ndarray: A 4x4 matrix combining rotation and translation if pose is detected.
         - None: If a valid pose cannot be determined.
         """
-        # Capture frame-by-frame
-        ret, frame = self.cap.read()
-        frame = cv2.flip(frame, 1)
-        if not ret:
+        frame = self.cam.grab()
+        if frame is None:
             return None
-
+        
+        sbuffer = time.perf_counter()
+        frame = cv2.flip(frame, 1)
+        
         # Remap the frame using the loaded calibration data
         frame = cv2.remap(frame, self.mapx, self.mapy, interpolation=cv2.INTER_LINEAR)
 
+        # sresize = time.perf_counter()
+        rframe = cv2.resize(frame, (640,400), interpolation = cv2.INTER_LINEAR)
+        # print(f"Resize time: {time.perf_counter() - sresize}")
+
         # Convert to grayscale
-        gray_image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray_image = frame
 
         # Apply binary thresholding
-        _, thresh = cv2.threshold(gray_image, 80, 255, cv2.THRESH_BINARY)
+        _, thresh = cv2.threshold(rframe, 80, 255, cv2.THRESH_BINARY)
 
         # Find connected components
         num_labels, labels_im, stats, centroids = cv2.connectedComponentsWithStats(thresh)
@@ -274,7 +340,7 @@ class PoseEstimator:
             if area > 4:  # Filter out small blobs
                 # Define the ROI for the current blob
                 roi_labels = labels_im[y:y+h, x:x+w]
-                roi_gray = gray_image[y:y+h, x:x+w]
+                roi_gray = rframe[y:y+h, x:x+w]
 
                 # Create a mask for the current blob within the ROI
                 blob_mask = roi_labels == label
@@ -284,11 +350,11 @@ class PoseEstimator:
 
                 blob_stats.append({
                     'label': label,
-                    'x': x,
-                    'y': y,
-                    'w': w,
-                    'h': h,
-                    'area': area,
+                    'x': x*3,
+                    'y': y*3,
+                    'w': w*3,
+                    'h': h*3,
+                    'area': area*4,
                     'perc_25': perc_25
                 })
 
@@ -300,6 +366,7 @@ class PoseEstimator:
 
         for blob in blob_stats:
             x, y, w, h = blob['x'], blob['y'], blob['w'], blob['h']
+            perc_25 = blob['perc_25']
 
             # Expand the bounding rectangle
             padding = 2
@@ -310,29 +377,47 @@ class PoseEstimator:
 
             # Crop the region of interest
             cropped_grad = gray_image[y1:y2, x1:x2]
-            cropped_grad[cropped_grad > blob['perc_25']] = blob['perc_25']
+            cropped_grad = cropped_grad.copy()  # To avoid modifying the original image
+            background_noise = np.percentile(cropped_grad[cropped_grad < blob['perc_25']], 10)
+            perc_25 -= background_noise
+            cropped_grad[cropped_grad < background_noise] = 0
+            cropped_grad[cropped_grad >= background_noise] = cropped_grad[cropped_grad >= background_noise] - background_noise
+            cropped_grad[cropped_grad > perc_25] = perc_25
 
             # Calculate the center of the blob
-            center = self.calculate_center_of_blob(cropped_grad, blob['perc_25'])
+            center = self.calculate_center_of_blob(cropped_grad, perc_25)
             if center is not None:
                 blob_x, blob_y = center
                 blob_x += x1
                 blob_y += y1
                 blobs_position.append((blob_x, blob_y))
 
-        # Proceed only if exactly 6 blobs are detected
-        if len(blobs_position) == num_obj_points:
+        # blobs_position = []
 
-            # Assemble the image points in the required order
-            ball_positions = get_object_points(blobs_position)
+        # # Use ThreadPoolExecutor to process blobs in parallel
+        # futures = [
+        #     self.executor.submit(self._process_blob, blob, gray_image)
+        #     for blob in blob_stats
+        # ]
+
+        # for future in concurrent.futures.as_completed(futures):
+        #     result = future.result()
+        #     if result is not None:
+        #         blobs_position.append(result)
+
+        # Proceed only if the expected number of blobs are detected
+        if len(blobs_position) == num_obj_points:
+            # Replace 'get_object_points' and 'object_points' with your actual implementation
+            # For example:
+            blobs_position = get_object_points(blobs_position)  # 3D points in object space
+            image_points = np.array(blobs_position, dtype=np.float32)
 
             # Solve PnP to find rotation and translation vectors
-            # if prev_translation_vector is not None:
             success, rotation_vector, translation_vector = cv2.solvePnP(
                 object_points,
-                ball_positions,
+                image_points,
                 self.cam_matrix,
-                None,
+                self.dist_coeffs,
                 flags=cv2.SOLVEPNP_SQPNP
             )
 
@@ -345,11 +430,20 @@ class PoseEstimator:
                 pose_matrix[:3, :3] = rotation_matrix
                 pose_matrix[:3, 3] = translation_vector.flatten()
 
-                # Update previous rotation and translation vectors
-                self.prev_rotation_vector = rotation_vector
-                self.prev_translation_vector = translation_vector
+                print(f"Pose compute time: {time.perf_counter() - sbuffer}")
 
                 return pose_matrix
 
         # Return None if pose cannot be determined
         return None
+
+    def get_pose(self) -> Optional[np.ndarray]:
+        """
+        Returns the most recent valid pose computed by the background thread.
+
+        Returns:
+        - np.ndarray: A 4x4 matrix combining rotation and translation if a pose is available.
+        - None: If no valid pose has been computed yet.
+        """
+        with self._pose_lock:
+            return self._pose_matrix.copy() if self._pose_matrix is not None else None
