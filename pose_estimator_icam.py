@@ -153,6 +153,9 @@ object_points_p5_large = np.array([
 ], dtype=np.float32)
 
 object_points = object_points_p5_large
+y_offset = 35.0
+object_points[:, 1] += y_offset
+
 get_object_points = get_object_points_p5
 num_obj_points = object_points.shape[0]
 
@@ -165,7 +168,7 @@ class PoseEstimator:
         self.cam = ICamera()
 
         # Load calibration data
-        base_path = "C:\\Users\\v3n0w\\Downloads\\Camera\\vive_tracker_lightgun\\calib_images_icam_8mm\\"
+        base_path = "calib_images_icam_8mm_2\\"
         self.cam_matrix = np.load(base_path + "new_cam_matrix.npy")
         self.dist_coeffs = np.load(base_path + "distortion.npy")
         self.mapx = np.load(base_path + "mapx.npy")

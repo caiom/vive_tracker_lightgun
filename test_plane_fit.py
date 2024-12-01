@@ -11,14 +11,20 @@ from scipy.spatial.transform import Rotation
 from scipy.optimize import least_squares, differential_evolution
 
 
+# POINTS_NAMES = ['bottom_left', 
+#                 'top_left', 
+#                 'top_right', 
+#                 'bottom_right', 
+#                 'center', 
+#                 'left_center',
+#                 'right_center',
+#                 'bottom_center']
+
 POINTS_NAMES = ['bottom_left', 
                 'top_left', 
                 'top_right', 
                 'bottom_right', 
-                'center', 
-                'left_center',
-                'right_center',
-                'bottom_center']
+                'center']
 
 NUM_POINTS = len(POINTS_NAMES)
 
@@ -110,27 +116,32 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
     P4 = P[3]
     Center = P[4]
 
-    P5 = P[5]
-    P6 = P[6]
-    P7 = P[7]
+    # P5 = P[5]
+    # P6 = P[6]
+    # P7 = P[7]
 
-    # Additional edge points
-    # Each entry represents an edge point with:
-    # - 'P': observed point coordinates [x, y, z]
-    # - 'edge': tuple indicating the edge ('R2', 'R3') means from R2 to R3
-    # - 's': parameter along the edge, ranging from 0 to 1
-    edge_points = [
-        {'P': P5, 'edge': ('R1', 'R2'), 's': 0.5},  # Left-center point
-        {'P': P6, 'edge': ('R3', 'R4'), 's': 0.5},  # Right-center point
-        {'P': P7, 'edge': ('R1', 'R4'), 's': 0.5},  # bottom-center point
-    ]
+    # # Additional edge points
+    # # Each entry represents an edge point with:
+    # # - 'P': observed point coordinates [x, y, z]
+    # # - 'edge': tuple indicating the edge ('R2', 'R3') means from R2 to R3
+    # # - 's': parameter along the edge, ranging from 0 to 1
+    # edge_points = [
+    #     {'P': P5, 'edge': ('R1', 'R2'), 's': 0.5},  # Left-center point
+    #     {'P': P6, 'edge': ('R3', 'R4'), 's': 0.5},  # Right-center point
+    #     {'P': P7, 'edge': ('R1', 'R4'), 's': 0.5},  # bottom-center point
+    # ]
 
     # Create numpy arrays of your points
     P = np.array([P1, P2, P3, P4])
+    print(Center)
+
+    print(P)
 
     # Initial guess for parameters
     # Center C is the centroid of the points
     C0 = np.mean(P, axis=0)
+
+    print(C0)
 
     # Initial guess for u and v: Use PCA components
     P_centered = P - C0
@@ -146,6 +157,8 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
     # Initial guess for half-lengths
     l_u0 = np.linalg.norm(P_centered @ u0, ord=np.inf)
     l_v0 = np.linalg.norm(P_centered @ v0, ord=np.inf)
+
+    print(l_v0)
 
     # Combine all parameters into a single vector
     # Parameters: [C (3), u (3), v (3), l_u, l_v]
@@ -169,29 +182,30 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
         R_dict = {'R1': R[0], 'R2': R[1], 'R3': R[2], 'R4': R[3]}
         
         # Sum of squared distances between P_i and R_i
-        error_points = np.sum(np.linalg.norm(P - R, axis=1)**2)
+        error_points = np.sum(np.linalg.norm(P - R, axis=1))
         
         # Add the squared distance between optimized center and provided Center
-        error_center = np.linalg.norm(C - Center)**2
+        error_center = np.linalg.norm(C - Center)
         
             # Sum of squared distances for edge points
-        error_edge_points = 0
-        for edge_point in edge_points:
-            P_i = np.array(edge_point['P'])
-            edge_start_label, edge_end_label = edge_point['edge']
-            s_i = edge_point['s']
+        # error_edge_points = 0
+        # for edge_point in edge_points:
+        #     P_i = np.array(edge_point['P'])
+        #     edge_start_label, edge_end_label = edge_point['edge']
+        #     s_i = edge_point['s']
             
-            R_start = R_dict[edge_start_label]
-            R_end = R_dict[edge_end_label]
+        #     R_start = R_dict[edge_start_label]
+        #     R_end = R_dict[edge_end_label]
             
-            # Expected position on the edge
-            E_i = (1 - s_i) * R_start + s_i * R_end
+        #     # Expected position on the edge
+        #     E_i = (1 - s_i) * R_start + s_i * R_end
             
-            # Add squared distance to total error
-            error_edge_points += np.linalg.norm(P_i - E_i)**2
+        #     # Add squared distance to total error
+        #     error_edge_points += np.linalg.norm(P_i - E_i)**2
         
         # Total error
-        total_error = error_points + error_center + error_edge_points
+        # total_error = error_points + error_center + error_edge_points
+        total_error = error_points + error_center
         return total_error
 
     # Define constraints
@@ -262,19 +276,19 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
         center_error = np.linalg.norm(C_opt - Center)
         print(f"\nError between optimized center and provided Center: {center_error:.6f}")
 
-        # Compute errors for edge points
-        print("\nErrors between edge points and expected positions on rectangle edges:")
-        for idx, edge_point in enumerate(edge_points):
-            P_i = np.array(edge_point['P'])
-            edge_start_label, edge_end_label = edge_point['edge']
-            s_i = edge_point['s']
+        # # Compute errors for edge points
+        # print("\nErrors between edge points and expected positions on rectangle edges:")
+        # for idx, edge_point in enumerate(edge_points):
+        #     P_i = np.array(edge_point['P'])
+        #     edge_start_label, edge_end_label = edge_point['edge']
+        #     s_i = edge_point['s']
             
-            R_start = R_opt[['R1', 'R2', 'R3', 'R4'].index(edge_start_label)]
-            R_end = R_opt[['R1', 'R2', 'R3', 'R4'].index(edge_end_label)]
+        #     R_start = R_opt[['R1', 'R2', 'R3', 'R4'].index(edge_start_label)]
+        #     R_end = R_opt[['R1', 'R2', 'R3', 'R4'].index(edge_end_label)]
             
-            E_i = (1 - s_i) * R_start + s_i * R_end
-            error_edge_point = np.linalg.norm(P_i - E_i)
-            print(f"Edge Point {idx+1}: Error = {error_edge_point:.6f}")
+        #     E_i = (1 - s_i) * R_start + s_i * R_end
+        #     error_edge_point = np.linalg.norm(P_i - E_i)
+        #     print(f"Edge Point {idx+1}: Error = {error_edge_point:.6f}")
 
         # Print optimized parameters
         print("\nOptimized Parameters:")
@@ -331,14 +345,20 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
     return result.fun + np.sum(dists**2)
 
 
+# pos_mapping = {0: (0, 1),
+#                1: (0, 0),
+#                2: (1, 0),
+#                3: (1, 1),
+#                4: (0.5, 0.5),
+#                5: (0.0, 0.5),
+#                6: (1.0, 0.5),
+#                7: (0.5, 1.0),}
+
 pos_mapping = {0: (0, 1),
                1: (0, 0),
                2: (1, 0),
                3: (1, 1),
-               4: (0.5, 0.5),
-               5: (0.0, 0.5),
-               6: (1.0, 0.5),
-               7: (0.5, 1.0),}
+               4: (0.5, 0.5),}
 
 bounds_x = 20
 bounds_y = 30
@@ -360,9 +380,22 @@ trans_bounds = [(neg, pos) for neg, pos in zip(bounds_low_trans, bounds_high_tra
 dif_e_bounds = rot_bounds + trans_bounds
 
 pose_matrices = []
-for i in range(48, 64):
-    pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\pose_matrix_{i}.npy')
+
+i = 0
+read = 0
+while i < 16:
+    print(f"Reading {i}")
+    pose_matrix = np.load(f'pose_matrix_{i}.npy')
     pose_matrices.append(pose_matrix)
+    read += 1
+    i += 1
+
+    if read == 5:
+        i += 3
+        read = 0
+        continue
+
+
 
 # for i in range(48, 72):
 #     pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\pose_matrix_{i}.npy')
@@ -378,9 +411,24 @@ for i in range(48, 64):
 #     pose_matrices_test.append(pose_matrix)
 
 pose_matrices_test = []
-for i in range(48, 64):
-    pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\pose_matrix_{i}.npy')
+# for i in range(0, 24):
+#     pose_matrix = np.load(f'pose_matrix_{i}.npy')
+#     pose_matrices_test.append(pose_matrix)
+
+i = 0
+read = 0
+while i < 24:
+    pose_matrix = np.load(f'pose_matrix_{i}.npy')
     pose_matrices_test.append(pose_matrix)
+    read += 1
+    i += 1
+
+    if read == 5:
+        i += 3
+        read = 0
+        continue
+
+    
 
 # for i in range(64, 72):
 #     pose_matrix = np.load(f'C:\\Users\\v3n0w\\Downloads\\Camera\\pose_matrix_{i}.npy')
