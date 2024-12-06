@@ -4,7 +4,11 @@ import numpy as np
 from typing import Optional, Tuple
 from icamera import ICamera
 import time
-import concurrent.futures
+import multiprocessing
+from queue import Empty
+from numba import njit
+
+cv2.setNumThreads(2)
 
 def get_object_points_p2(blobs_position):
     sort_y = sorted(blobs_position, key=lambda x: x[1])
@@ -153,300 +157,247 @@ object_points_p5_large = np.array([
 ], dtype=np.float32)
 
 object_points = object_points_p5_large
-y_offset = 35.0
-object_points[:, 1] += y_offset
-
 get_object_points = get_object_points_p5
 num_obj_points = object_points.shape[0]
+
+@njit
+def process_cropped_region_numba(region: np.ndarray, background_noise: float, perc_25: float) -> (float, float):
+    rows, cols = region.shape
+
+    total_weight = 0.0
+    weighted_sum_x = 0.0
+    weighted_sum_y = 0.0
+
+    # Step 1: Process the region in-place
+    for y in range(rows):
+        for x in range(cols):
+            val = region[y, x]
+            if val < background_noise:
+                val = 0
+            else:
+                val = val - background_noise
+                if val > perc_25:
+                    val = perc_25
+            val = float(val)
+            weight = val / perc_25
+            total_weight += weight
+            weighted_sum_x += x * weight
+            weighted_sum_y += y * weight
+
+    if total_weight == 0.0:
+        return -1.0, -1.0
+
+    x_center = (weighted_sum_x / total_weight) + 0.5
+    y_center = (weighted_sum_y / total_weight) + 0.5
+    return x_center, y_center
+
+def pose_worker(pose_queue: multiprocessing.Queue, stop_event):
+    """
+    Worker function to run in a separate process.
+    Initializes the camera and computes poses, sending them back via a queue.
+    """
+
+    import psutil
+    import os
+
+    p = psutil.Process(os.getpid())
+    p.nice(psutil.HIGH_PRIORITY_CLASS)
+
+    p = psutil.Process(os.getpid())
+    p.cpu_affinity([0, 1])  # Pin to cores 0 and 1
+
+    cam = ICamera()
+
+    # Load calibration data
+    base_path = "calib_images_icam_8mm_2\\"
+    cam_matrix = np.load(base_path + "new_cam_matrix.npy")
+    dist_coeffs = np.load(base_path + "distortion.npy")
+    mapx = np.load(base_path + "mapx.npy")
+    mapy = np.load(base_path + "mapy.npy")
+
+    while not stop_event.is_set():
+        pose = compute_pose(cam, cam_matrix, dist_coeffs, mapx, mapy)
+        if pose is not None:
+            try:
+                # Keep only the latest pose
+                if not pose_queue.empty():
+                    try:
+                        pose_queue.get_nowait()
+                    except Empty:
+                        pass
+                pose_queue.put(pose)
+            except multiprocessing.queues.Full:
+                pass  # If queue is full, skip
+
+    cam.cleanup()
+
+def compute_pose(cam, cam_matrix, dist_coeffs, mapx, mapy):
+    """
+    Capture frame, process it, and compute the pose.
+    This function mirrors the _compute_pose method from your original class.
+    """
+    stime = time.perf_counter()
+    frame = cam.grab()
+    if frame is None:
+        return None
+    
+    egrab = time.perf_counter()
+    print(f"Grab time: {egrab - stime}")
+    
+    frame = np.reshape(frame, (frame.shape[0], frame.shape[1]))
+
+    # frame = cv2.flip(frame, 1)
+    # Uncomment and adjust if remapping is needed
+    # frame = cv2.remap(frame, mapx, mapy, interpolation=cv2.INTER_LINEAR)
+
+    rframe = cv2.resize(frame, (640, 400), interpolation=cv2.INTER_LINEAR)
+    eresize = time.perf_counter()
+    print(f"Resize time: {eresize - egrab}")
+
+    # return None
+
+    # Apply binary thresholding
+    _, thresh = cv2.threshold(rframe, 80, 255, cv2.THRESH_BINARY)
+
+    # Find connected components
+    num_labels, labels_im, stats, centroids = cv2.connectedComponentsWithStats(thresh)
+    econnected = time.perf_counter()
+    print(f"CC time: {econnected - eresize}")
+    # Collect blob statistics
+    blob_stats = []
+    for label in range(1, num_labels):
+        x, y, w, h, area = stats[label]
+        if area > 4:  # Filter out small blobs
+            roi_labels = labels_im[y:y+h, x:x+w]
+            roi_gray = rframe[y:y+h, x:x+w]
+            blob_mask = roi_labels == label
+            perc_25 = np.mean(roi_gray[blob_mask])
+            blob_stats.append({
+                'label': label,
+                'x': x*3,
+                'y': y*3,
+                'w': w*3,
+                'h': h*3,
+                'area': area*4,
+                'perc_25': perc_25
+            })
+
+    if len(blob_stats) < num_obj_points:
+        return None
+    # If more than num_obj_points blobs, keep the top num_obj_points by area
+    if len(blob_stats) > num_obj_points:
+        blob_stats = sorted(blob_stats, key=lambda x: x["area"], reverse=True)[:num_obj_points]
+
+    blobs_position = []
+
+    estats = time.perf_counter()
+    print(f"Stats time: {estats - econnected}")
+
+    for blob in blob_stats:
+        center = calculate_center_of_blob(blob, frame)
+        if center is not None:
+            blobs_position.append(center)
+
+    ecblob = time.perf_counter()
+    print(f"Stats time: {ecblob - estats}")
+
+    if len(blobs_position) == num_obj_points:
+        blobs_position = get_object_points(blobs_position)  # Define this function accordingly
+        image_points = np.array(blobs_position, dtype=np.float32)
+
+        success, rotation_vector, translation_vector = cv2.solvePnP(
+            object_points,
+            image_points,
+            cam_matrix,
+            dist_coeffs,
+            flags=cv2.SOLVEPNP_SQPNP
+        )
+
+        print(f"Total pose time: {time.perf_counter() - stime}")
+
+        if success:
+            rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
+            pose_matrix = np.eye(4)
+            pose_matrix[:3, :3] = rotation_matrix
+            pose_matrix[:3, 3] = translation_vector.flatten()
+            return pose_matrix
+
+    return None
+
+def calculate_center_of_blob(blob: dict, gray_image: np.ndarray) -> Optional[Tuple[float, float]]:
+    """
+    Calculate the center of the blob based on the blob statistics and grayscale image.
+    """
+    x, y, w, h, perc_25 = blob['x'], blob['y'], blob['w'], blob['h'], blob['perc_25']
+
+    padding = 2
+    x1 = max(x - padding, 0)
+    y1 = max(y - padding, 0)
+    x2 = min(x + w + padding, gray_image.shape[1] - 1)
+    y2 = min(y + h + padding, gray_image.shape[0] - 1)
+
+    cropped_grad = gray_image[y1:y2, x1:x2]
+    # background_noise = np.percentile(cropped_grad[cropped_grad < perc_25], 10)
+
+    background_noise = np.mean(cropped_grad[cropped_grad < perc_25])
+    perc_25 -= background_noise
+
+    if perc_25 <= 0:
+        return None
+
+    center = process_cropped_region_numba(cropped_grad, background_noise, perc_25)
+    if center[0] != -1.0:
+        blob_x, blob_y = center
+        blob_x += x1
+        blob_y += y1
+        blob_x = (gray_image.shape[1]-1) - blob_x
+        return (blob_x, blob_y)
+
+    return None
 
 class PoseEstimator:
     def __init__(self):
         """
         Initializes the PoseEstimator by setting up the camera and loading calibration data.
         """
-        # Open the default camera (usually the webcam)
-        self.cam = ICamera()
-
-        # Load calibration data
-        base_path = "calib_images_icam_8mm_2\\"
-        self.cam_matrix = np.load(base_path + "new_cam_matrix.npy")
-        self.dist_coeffs = np.load(base_path + "distortion.npy")
-        self.mapx = np.load(base_path + "mapx.npy")
-        self.mapy = np.load(base_path + "mapy.npy")
-
-        # Initialize previous rotation and translation vectors
-        self.prev_rotation_vector = None
-        self.prev_translation_vector = None
-
-        # Pose storage
-        self._pose_matrix = None
+        self.pose_queue = multiprocessing.Queue(maxsize=1)
+        self.stop_event = multiprocessing.Event()
+        self.process = multiprocessing.Process(
+            target=pose_worker,
+            args=(self.pose_queue, self.stop_event),
+            daemon=True
+        )
+        self.process.start()
         self._pose_lock = threading.Lock()
-
-        # Thread control
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._pose_thread, daemon=True)
-
-        # Initialize ThreadPoolExecutor
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)  # Adjust as needed
-
-        # Start the background thread
-        self._thread.start()
-
-    def __del__(self):
-        """
-        Releases the camera resource when the instance is destroyed.
-        """
-        self.cam.cleanup()
+        self._pose_matrix = None
 
     def cleanup(self):
         """
-        Stops the background thread and releases the camera resource.
+        Stops the background process and cleans up resources.
         """
-        self._stop_event.set()
-        self._thread.join(timeout=1.0)
-        self.executor.shutdown(wait=True)  # Shutdown the executor
-        self.cam.cleanup()
-
-    @staticmethod
-    def calculate_center_of_blob(image: np.ndarray, max_val: float) -> Optional[Tuple[float, float]]:
-        """
-        Calculate the center of the white blob in a 2D uint8 NumPy array.
-
-        Parameters:
-        - image (np.ndarray): 2D array of type uint8 representing the image.
-        - max_val (float): The maximum pixel value to consider.
-
-        Returns:
-        - tuple: (x_center, y_center) coordinates of the blob's center.
-                 Returns None if the image has no white pixels.
-        """
-        if image.ndim != 2:
-            raise ValueError("Input image must be a 2D array.")
-
-        # Convert image to float for precise calculations
-        img = image.astype(np.float32)
-
-        if max_val == 0:
-            # No white pixels in the image
-            return None
-
-        # img[img > max_val] = max_val
-
-        # Normalize the pixel values to get weights in [0, 1]
-        weights = img / max_val
-
-        # Generate grid of x and y indices
-        y_indices, x_indices = np.indices(img.shape)
-
-        # Calculate the weighted sum of x and y indices
-        weighted_sum_x = np.sum(x_indices * weights)
-        weighted_sum_y = np.sum(y_indices * weights)
-
-        # Calculate the sum of weights
-        total_weight = np.sum(weights)
-
-        if total_weight == 0:
-            return None
-
-        # Compute the center coordinates and add 0.5 for precision
-        x_center = (weighted_sum_x / total_weight) + 0.5
-        y_center = (weighted_sum_y / total_weight) + 0.5
-
-        return (x_center, y_center)
-    
-    def _process_blob(self, blob: dict, gray_image: np.ndarray) -> Optional[Tuple[float, float]]:
-        """
-        Processes a single blob to calculate its center.
-
-        Parameters:
-        - blob (dict): A dictionary containing blob statistics.
-        - gray_image (np.ndarray): The grayscale image.
-
-        Returns:
-        - tuple: (x_center, y_center) coordinates of the blob's center.
-        - None: If the center cannot be determined.
-        """
-        x, y, w, h = blob['x'], blob['y'], blob['w'], blob['h']
-        perc_25 = blob['perc_25']
-
-        # Expand the bounding rectangle
-        padding = 2
-        x1 = max(x - padding, 0)
-        y1 = max(y - padding, 0)
-        x2 = min(x + w + padding, gray_image.shape[1] - 1)
-        y2 = min(y + h + padding, gray_image.shape[0] - 1)
-
-        # Crop the region of interest
-        cropped_grad = gray_image[y1:y2, x1:x2].copy()  # To avoid modifying the original image
-        background_noise = np.percentile(cropped_grad[cropped_grad < perc_25], 10)
-        cropped_grad[cropped_grad < background_noise] = 0
-        cropped_grad[cropped_grad >= background_noise] = cropped_grad[cropped_grad >= background_noise] - background_noise
-        cropped_grad[cropped_grad > perc_25] = perc_25
-
-        # Calculate the center of the blob
-        center = self.calculate_center_of_blob(cropped_grad, perc_25)
-        if center is not None:
-            blob_x, blob_y = center
-            blob_x += x1
-            blob_y += y1
-            return (blob_x, blob_y)
-
-        return None
-    
-    def _pose_thread(self):
-        """
-        The background thread that continuously captures frames and computes the pose.
-        """
-        while not self._stop_event.is_set():
-            pose = self._compute_pose()
-            if pose is not None:
-                with self._pose_lock:
-                    self._pose_matrix = pose
-
-    def _compute_pose(self) -> Optional[np.ndarray]:
-        """
-        Captures a frame, processes it, and computes the pose.
-
-        Returns:
-        - np.ndarray: A 4x4 matrix combining rotation and translation if pose is detected.
-        - None: If a valid pose cannot be determined.
-        """
-        frame = self.cam.grab()
-        if frame is None:
-            return None
-        
-        sbuffer = time.perf_counter()
-        frame = cv2.flip(frame, 1)
-        
-        # Remap the frame using the loaded calibration data
-        frame = cv2.remap(frame, self.mapx, self.mapy, interpolation=cv2.INTER_LINEAR)
-
-        # sresize = time.perf_counter()
-        rframe = cv2.resize(frame, (640,400), interpolation = cv2.INTER_LINEAR)
-        # print(f"Resize time: {time.perf_counter() - sresize}")
-
-        # Convert to grayscale
-        gray_image = frame
-
-        # Apply binary thresholding
-        _, thresh = cv2.threshold(rframe, 80, 255, cv2.THRESH_BINARY)
-
-        # Find connected components
-        num_labels, labels_im, stats, centroids = cv2.connectedComponentsWithStats(thresh)
-
-        # Collect blob statistics
-        blob_stats = []
-        for label in range(1, num_labels):
-            # Extract statistics directly from 'stats'
-            x, y, w, h, area = stats[label]
-
-            if area > 4:  # Filter out small blobs
-                # Define the ROI for the current blob
-                roi_labels = labels_im[y:y+h, x:x+w]
-                roi_gray = rframe[y:y+h, x:x+w]
-
-                # Create a mask for the current blob within the ROI
-                blob_mask = roi_labels == label
-
-                # Calculate the 50th percentile within the blob mask
-                perc_25 = np.percentile(roi_gray[blob_mask], 50)
-
-                blob_stats.append({
-                    'label': label,
-                    'x': x*3,
-                    'y': y*3,
-                    'w': w*3,
-                    'h': h*3,
-                    'area': area*4,
-                    'perc_25': perc_25
-                })
-
-        # If more than num_obj_points blobs, keep the top num_obj_points by area
-        if len(blob_stats) > num_obj_points:
-            blob_stats = sorted(blob_stats, key=lambda x: x["area"], reverse=True)[:num_obj_points]
-
-        blobs_position = []
-
-        for blob in blob_stats:
-            x, y, w, h = blob['x'], blob['y'], blob['w'], blob['h']
-            perc_25 = blob['perc_25']
-
-            # Expand the bounding rectangle
-            padding = 2
-            x1 = max(x - padding, 0)
-            y1 = max(y - padding, 0)
-            x2 = min(x + w + padding, gray_image.shape[1] - 1)
-            y2 = min(y + h + padding, gray_image.shape[0] - 1)
-
-            # Crop the region of interest
-            cropped_grad = gray_image[y1:y2, x1:x2]
-            cropped_grad = cropped_grad.copy()  # To avoid modifying the original image
-            background_noise = np.percentile(cropped_grad[cropped_grad < blob['perc_25']], 10)
-            perc_25 -= background_noise
-            cropped_grad[cropped_grad < background_noise] = 0
-            cropped_grad[cropped_grad >= background_noise] = cropped_grad[cropped_grad >= background_noise] - background_noise
-            cropped_grad[cropped_grad > perc_25] = perc_25
-
-            # Calculate the center of the blob
-            center = self.calculate_center_of_blob(cropped_grad, perc_25)
-            if center is not None:
-                blob_x, blob_y = center
-                blob_x += x1
-                blob_y += y1
-                blobs_position.append((blob_x, blob_y))
-
-        # blobs_position = []
-
-        # # Use ThreadPoolExecutor to process blobs in parallel
-        # futures = [
-        #     self.executor.submit(self._process_blob, blob, gray_image)
-        #     for blob in blob_stats
-        # ]
-
-        # for future in concurrent.futures.as_completed(futures):
-        #     result = future.result()
-        #     if result is not None:
-        #         blobs_position.append(result)
-
-        # Proceed only if the expected number of blobs are detected
-        if len(blobs_position) == num_obj_points:
-            # Replace 'get_object_points' and 'object_points' with your actual implementation
-            # For example:
-            blobs_position = get_object_points(blobs_position)  # 3D points in object space
-            image_points = np.array(blobs_position, dtype=np.float32)
-
-            # Solve PnP to find rotation and translation vectors
-            success, rotation_vector, translation_vector = cv2.solvePnP(
-                object_points,
-                image_points,
-                self.cam_matrix,
-                self.dist_coeffs,
-                flags=cv2.SOLVEPNP_SQPNP
-            )
-
-            if success:
-                # Convert rotation vector to rotation matrix
-                rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
-
-                # Create a 4x4 transformation matrix
-                pose_matrix = np.eye(4)
-                pose_matrix[:3, :3] = rotation_matrix
-                pose_matrix[:3, 3] = translation_vector.flatten()
-
-                print(f"Pose compute time: {time.perf_counter() - sbuffer}")
-
-                return pose_matrix
-
-        # Return None if pose cannot be determined
-        return None
+        self.stop_event.set()
+        self.process.join(timeout=5.0)
+        if self.process.is_alive():
+            self.process.terminate()
+        while not self.pose_queue.empty():
+            self.pose_queue.get()
+        self.pose_queue.close()
 
     def get_pose(self) -> Optional[np.ndarray]:
         """
-        Returns the most recent valid pose computed by the background thread.
-
+        Retrieves the latest pose matrix from the background process.
+        
         Returns:
-        - np.ndarray: A 4x4 matrix combining rotation and translation if a pose is available.
+        - np.ndarray: A 4x4 matrix combining rotation and translation if available.
         - None: If no valid pose has been computed yet.
         """
         with self._pose_lock:
+            while not self.pose_queue.empty():
+                self._pose_matrix = self.pose_queue.get()
             return self._pose_matrix.copy() if self._pose_matrix is not None else None
+    
+    def __del__(self):
+        """
+        Ensures that resources are cleaned up when the instance is destroyed.
+        """
+        self.cleanup()

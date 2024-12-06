@@ -1,9 +1,11 @@
- #include <Mouse.h>
+#include <AbsMouse.h>
 
 byte buffer[9];
 
-int x;
-int y;
+float x;
+float y;
+uint16_t move_x;
+uint16_t move_y;
 uint8_t mouse_pressed;
 uint8_t mouse_pressed2;
 uint8_t code;
@@ -14,7 +16,7 @@ bool pressed_middle = false;
 void setup() {
  Serial.begin(115200);
  Serial.setTimeout(1);
- Mouse.begin();
+ AbsMouse.init();
 }
 void loop() 
 {
@@ -23,11 +25,19 @@ void loop()
   code = buffer[0];
   if (code == 37)
   {
-    x = *((int*)&buffer[1]);
-    y = *((int*)&buffer[5]);
+    x = *((float*)&buffer[1]);
+    y = *((float*)&buffer[5]);
     mouse_pressed = buffer[9];
     mouse_pressed2 = buffer[10];
-    Mouse.move(x, y);
+    move_x = (uint16_t) (x*32767.0);
+    move_y = (uint16_t) (y*32767.0);
+    AbsMouse.move(move_x, move_y);
+
+    // Serial.println("New data");
+    // Serial.println(x);
+    // Serial.println(y);
+    // Serial.println(move_x);
+    // Serial.println(move_y);
 
     if (mouse_pressed != mouse_pressed2)
       return;
@@ -36,7 +46,7 @@ void loop()
     {
       if (!pressed_left)
       {
-        Mouse.press(MOUSE_LEFT);
+        AbsMouse.press(MOUSE_LEFT);
         pressed_left = true;
       }
 
@@ -45,7 +55,7 @@ void loop()
     {
       if (pressed_left)
       {
-        Mouse.release(MOUSE_LEFT);
+        AbsMouse.release(MOUSE_LEFT);
         pressed_left = false;
       }
     }
@@ -55,7 +65,7 @@ void loop()
     {
       if (!pressed_right)
       {
-        Mouse.press(MOUSE_RIGHT);
+        AbsMouse.press(MOUSE_RIGHT);
         pressed_right = true;
       }
 
@@ -64,7 +74,7 @@ void loop()
     {
       if (pressed_right)
       {
-        Mouse.release(MOUSE_RIGHT);
+        AbsMouse.release(MOUSE_RIGHT);
         pressed_right = false;
       }
     }
@@ -74,7 +84,7 @@ void loop()
     {
       if (!pressed_middle)
       {
-        Mouse.press(MOUSE_MIDDLE);
+        AbsMouse.press(MOUSE_MIDDLE);
         pressed_middle = true;
       }
 
@@ -83,7 +93,7 @@ void loop()
     {
       if (pressed_middle)
       {
-        Mouse.release(MOUSE_MIDDLE);
+        AbsMouse.release(MOUSE_MIDDLE);
         pressed_middle = false;
       }
     }

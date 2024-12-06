@@ -2,6 +2,9 @@ import cv2
 import numpy as np
 import time
 from icamera import ICamera
+from light_gun_input import LightGunInput
+
+light_gun_input = LightGunInput()
 
 def calculate_center_of_blob(image: np.ndarray, max_val):
     """
@@ -258,8 +261,6 @@ object_points_p5_large = np.array([
 # ], dtype=np.float32)
 
 object_points = object_points_p5_large
-y_offset = 35.0
-object_points[:, 1] += y_offset
 get_object_points = get_object_points_p5
 num_obj_points = object_points.shape[0]
 
@@ -282,6 +283,10 @@ focal_length = (fx + fy) / 2.0
 frame_number = 0
 prev_rotation_vector = None
 prev_translation_vector = None
+shoot_number = 0
+
+button_pressed = False
+trigger_pressed = False
 # Loop to continuously grab frames from the webcam
 while True:
     # Capture frame-by-frame
@@ -301,9 +306,8 @@ while True:
     # Display the resulting frame
     gray_image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     rframe = cv2.resize(gray_image, (gray_image.shape[1] // 2,gray_image.shape[0] // 2), interpolation = cv2.INTER_LINEAR)
-    background_value = np.median(rframe[:500, :500])
 
-    _, thresh = cv2.threshold(rframe, 80, 255, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(rframe, 100, 255, cv2.THRESH_BINARY)
 
     num_labels, labels_im, stats, centroids = cv2.connectedComponentsWithStats(thresh)
 
@@ -412,6 +416,21 @@ while True:
         prev_rotation_vector = rotation_vector
         prev_translation_vector = translation_vector
 
+        pose_matrix = np.eye(4)
+        pose_matrix[:3, :3] = rotation_matrix
+        pose_matrix[:3, 3] = translation_vector.flatten()
+
+        if light_gun_input.get_input() is not None:
+            _, button_pressed, _ = light_gun_input.get_input()
+
+        if button_pressed and not trigger_pressed:
+            np.save(f'shoot_{shoot_number}.npy', pose_matrix)
+            shoot_number+=1
+            trigger_pressed = True
+
+        if not button_pressed and trigger_pressed:
+            trigger_pressed = False
+
         # print("Rotation Matrix:\n", rotation_vector)
         # print("Translation Vector:\n", translation_vector)
 
@@ -425,6 +444,7 @@ while True:
             rotation_matrix[2, :],
         )
 
+        img_with_axes = cv2.resize(img_with_axes, (int(img_with_axes.shape[1] / 1.3),int(img_with_axes.shape[0] / 1.3)), interpolation = cv2.INTER_LINEAR)
         cv2.imshow('Image', img_with_axes)
     cv2.imshow('Gray Image', gray_image)
     cv2.imshow('Detected White', thresh)

@@ -5,8 +5,7 @@ from light_gun_input import LightGunInput
 
 def calculate_pos_and_dir_from_pose(pose_matrix):
     tracker_position = np.copy(pose_matrix[:3, -1])
-    tracker_direction = np.copy(pose_matrix[2, :3])
-    tracker_direction[2] = -tracker_direction[2]
+    tracker_direction = -np.copy(pose_matrix[:3, 2])
 
     return (tracker_position, tracker_direction)
 
@@ -101,6 +100,8 @@ last_pose = None
 
 font = pygame.font.Font(pygame.font.get_default_font(), 36)
 
+tracker_to_gun = np.load("tracker_to_gun.npy")
+
 while running:
     
     # fill the screen with a color to wipe away anything from last frame
@@ -112,6 +113,8 @@ while running:
 
     if pose_matrix is not None:
         print("Valid")
+
+    pose_matrix = tracker_to_gun @ pose_matrix
 
     if button_pressed and not trigger_pressed:
         # np.save(f'pose_matrix_{corner_number}.npy', pose_matrix)

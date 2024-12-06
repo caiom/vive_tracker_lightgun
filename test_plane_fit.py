@@ -11,20 +11,20 @@ from scipy.spatial.transform import Rotation
 from scipy.optimize import least_squares, differential_evolution
 
 
-# POINTS_NAMES = ['bottom_left', 
-#                 'top_left', 
-#                 'top_right', 
-#                 'bottom_right', 
-#                 'center', 
-#                 'left_center',
-#                 'right_center',
-#                 'bottom_center']
-
 POINTS_NAMES = ['bottom_left', 
                 'top_left', 
                 'top_right', 
                 'bottom_right', 
-                'center']
+                'center', 
+                'left_center',
+                'right_center',
+                'bottom_center']
+
+# POINTS_NAMES = ['bottom_left', 
+#                 'top_left', 
+#                 'top_right', 
+#                 'bottom_right', 
+#                 'center']
 
 NUM_POINTS = len(POINTS_NAMES)
 
@@ -59,8 +59,7 @@ def closest_points_on_rays(o1, d1, o2, d2):
 
 def calculate_pos_and_dir_from_pose(pose_matrix):
     tracker_position = np.copy(pose_matrix[:3, -1])
-    tracker_direction = np.copy(pose_matrix[2, :3])
-    tracker_direction[2] = -tracker_direction[2]
+    tracker_direction = -np.copy(pose_matrix[:3, 2])
 
     return (tracker_position, tracker_direction)
 
@@ -86,6 +85,7 @@ def calculate_plane_points(screen_corners):
 
         Ps.append(np.median(comb_points, axis=0))
         dists.append(np.median(comb_points_dist))
+        print(comb_points_dist)
 
     return np.stack(Ps), np.array(dists)
 
@@ -116,20 +116,20 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
     P4 = P[3]
     Center = P[4]
 
-    # P5 = P[5]
-    # P6 = P[6]
-    # P7 = P[7]
+    P5 = P[5]
+    P6 = P[6]
+    P7 = P[7]
 
-    # # Additional edge points
-    # # Each entry represents an edge point with:
-    # # - 'P': observed point coordinates [x, y, z]
-    # # - 'edge': tuple indicating the edge ('R2', 'R3') means from R2 to R3
-    # # - 's': parameter along the edge, ranging from 0 to 1
-    # edge_points = [
-    #     {'P': P5, 'edge': ('R1', 'R2'), 's': 0.5},  # Left-center point
-    #     {'P': P6, 'edge': ('R3', 'R4'), 's': 0.5},  # Right-center point
-    #     {'P': P7, 'edge': ('R1', 'R4'), 's': 0.5},  # bottom-center point
-    # ]
+    # Additional edge points
+    # Each entry represents an edge point with:
+    # - 'P': observed point coordinates [x, y, z]
+    # - 'edge': tuple indicating the edge ('R2', 'R3') means from R2 to R3
+    # - 's': parameter along the edge, ranging from 0 to 1
+    edge_points = [
+        {'P': P5, 'edge': ('R1', 'R2'), 's': 0.5},  # Left-center point
+        {'P': P6, 'edge': ('R3', 'R4'), 's': 0.5},  # Right-center point
+        {'P': P7, 'edge': ('R1', 'R4'), 's': 0.5},  # bottom-center point
+    ]
 
     # Create numpy arrays of your points
     P = np.array([P1, P2, P3, P4])
@@ -182,30 +182,30 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
         R_dict = {'R1': R[0], 'R2': R[1], 'R3': R[2], 'R4': R[3]}
         
         # Sum of squared distances between P_i and R_i
-        error_points = np.sum(np.linalg.norm(P - R, axis=1))
+        error_points = np.sum(np.linalg.norm(P - R, axis=1)**2)
         
         # Add the squared distance between optimized center and provided Center
-        error_center = np.linalg.norm(C - Center)
+        error_center = np.linalg.norm(C - Center)**2
         
-            # Sum of squared distances for edge points
-        # error_edge_points = 0
-        # for edge_point in edge_points:
-        #     P_i = np.array(edge_point['P'])
-        #     edge_start_label, edge_end_label = edge_point['edge']
-        #     s_i = edge_point['s']
+        # Sum of squared distances for edge points
+        error_edge_points = 0
+        for edge_point in edge_points:
+            P_i = np.array(edge_point['P'])
+            edge_start_label, edge_end_label = edge_point['edge']
+            s_i = edge_point['s']
             
-        #     R_start = R_dict[edge_start_label]
-        #     R_end = R_dict[edge_end_label]
+            R_start = R_dict[edge_start_label]
+            R_end = R_dict[edge_end_label]
             
-        #     # Expected position on the edge
-        #     E_i = (1 - s_i) * R_start + s_i * R_end
+            # Expected position on the edge
+            E_i = (1 - s_i) * R_start + s_i * R_end
             
-        #     # Add squared distance to total error
-        #     error_edge_points += np.linalg.norm(P_i - E_i)**2
+            # Add squared distance to total error
+            error_edge_points += np.linalg.norm(P_i - E_i)**2
         
         # Total error
-        # total_error = error_points + error_center + error_edge_points
-        total_error = error_points + error_center
+        total_error = error_points + error_center + error_edge_points
+        # total_error = error_points + error_center
         return total_error
 
     # Define constraints
@@ -230,7 +230,7 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
     ]
 
     # Bounds for lengths to ensure they are positive
-    bounds = [(None, None)] * 9 + [(0, None), (0, None)]
+    bounds = [(None, None)] * 9 + [(100, None), (100, None)]
 
     # Perform optimization
     result = minimize(
@@ -345,20 +345,20 @@ def error_function(transform_to_aim, pose_matrices, pose_matrices_test, print_re
     return result.fun + np.sum(dists**2)
 
 
-# pos_mapping = {0: (0, 1),
-#                1: (0, 0),
-#                2: (1, 0),
-#                3: (1, 1),
-#                4: (0.5, 0.5),
-#                5: (0.0, 0.5),
-#                6: (1.0, 0.5),
-#                7: (0.5, 1.0),}
-
 pos_mapping = {0: (0, 1),
                1: (0, 0),
                2: (1, 0),
                3: (1, 1),
-               4: (0.5, 0.5),}
+               4: (0.5, 0.5),
+               5: (0.0, 0.5),
+               6: (1.0, 0.5),
+               7: (0.5, 1.0),}
+
+# pos_mapping = {0: (0, 1),
+#                1: (0, 0),
+#                2: (1, 0),
+#                3: (1, 1),
+#                4: (0.5, 0.5),}
 
 bounds_x = 20
 bounds_y = 30
@@ -380,18 +380,18 @@ trans_bounds = [(neg, pos) for neg, pos in zip(bounds_low_trans, bounds_high_tra
 dif_e_bounds = rot_bounds + trans_bounds
 
 pose_matrices = []
-
+tracker_to_gun = np.load("tracker_to_gun.npy")
 i = 0
 read = 0
-while i < 16:
+while i < 24:
     print(f"Reading {i}")
-    pose_matrix = np.load(f'pose_matrix_{i}.npy')
+    pose_matrix = tracker_to_gun @ np.load(f'pose_matrix_{i}.npy')
     pose_matrices.append(pose_matrix)
     read += 1
     i += 1
 
     if read == 5:
-        i += 3
+        i += 0
         read = 0
         continue
 
@@ -418,13 +418,13 @@ pose_matrices_test = []
 i = 0
 read = 0
 while i < 24:
-    pose_matrix = np.load(f'pose_matrix_{i}.npy')
+    pose_matrix = tracker_to_gun @ np.load(f'pose_matrix_{i}.npy')
     pose_matrices_test.append(pose_matrix)
     read += 1
     i += 1
 
     if read == 5:
-        i += 3
+        i += 0
         read = 0
         continue
 

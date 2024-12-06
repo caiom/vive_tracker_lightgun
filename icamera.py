@@ -25,7 +25,7 @@ class ICamera:
 
         # Configure camera settings
         mvsdk.CameraSetIspOutFormat(self.h_camera, mvsdk.CAMERA_MEDIA_TYPE_MONO8)
-        mvsdk.CameraSetTriggerMode(self.h_camera, 0)
+        mvsdk.CameraSetTriggerMode(self.h_camera, 1)
         mvsdk.CameraSetAeState(self.h_camera, 0)
         mvsdk.CameraSetExposureTime(self.h_camera, exposure * 1000)  # Exposure time in microseconds
         mvsdk.CameraSetAnalogGain(self.h_camera, 2)
@@ -48,6 +48,7 @@ class ICamera:
         """
         try:
             # Acquire image buffer with a timeout of 200ms
+            mvsdk.CameraSoftTrigger(self.h_camera)
             p_raw_data, frame_head = mvsdk.CameraGetImageBuffer(self.h_camera, 200)
 
             # Process the raw image data
@@ -86,7 +87,8 @@ if __name__ == "__main__":
         while True:
             frame = camera.grab()
             if frame is not None:
-                cv2.imshow("Camera Frame", frame)
+                rframe = cv2.resize(frame, (frame.shape[1]//2,frame.shape[0]//2), interpolation = cv2.INTER_LINEAR)
+                cv2.imshow("Camera Frame", rframe)
             
             # Exit loop when 'q' is pressed
             key = cv2.waitKey(1) & 0xFF
