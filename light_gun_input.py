@@ -108,18 +108,23 @@ if __name__ == "__main__":
 
     def main():
         light_gun = LightGunInput()
+        step = 0
 
         try:
             while True:
                 input_state = light_gun.get_input()
                 if input_state:
                     trigger, button_a, button_b = input_state
-                    print(f"Trigger: {'Pressed' if trigger else 'Released'}, "
-                          f"Button A: {'Pressed' if button_a else 'Released'}, "
-                          f"Button B: {'Pressed' if button_b else 'Released'}")
+                    if button_a:
+                        print(f"Pressed {step}")
+                        step += 1
+                    # print(f"Trigger: {'Pressed' if trigger else 'Released'}, "
+                    #       f"Button A: {'Pressed' if button_a else 'Released'}, "
+                    #       f"Button B: {'Pressed' if button_b else 'Released'}")
                 else:
-                    print("Not connected or no input received yet.")
-                time.sleep(1)  # Polling interval
+                    # print("Not connected or no input received yet.")
+                    pass
+                time.sleep(0.001)  # Polling interval
         except KeyboardInterrupt:
             print("\nInterrupted by user.")
         finally:

@@ -51,7 +51,7 @@ if __name__ == '__main__':
         print('{0} released'.format(
             key))
 
-    # ...or, in a non-blocking fashion:
+    # ...or, in a non-blocking fashion
     listener = keyboard.Listener(
         on_press=on_press,
         on_release=on_release)
@@ -164,6 +164,11 @@ if __name__ == '__main__':
         tracker_position, tracker_direction = calculate_pos_and_dir_from_pose(pose_matrix)
 
         denom = np.dot(tracker_direction, N_opt)
+
+        if denom == 0.0:
+            time.sleep(0.002)
+            continue
+        
         numerator = np.dot(C_opt - tracker_position, N_opt)
         t = numerator / denom
         P_intersect = tracker_position + t * tracker_direction
@@ -181,12 +186,12 @@ if __name__ == '__main__':
         mouse_buttom = 0
         button_trigger, button_left, button_right
         if offscreen_reload and (u_coord < 0 or u_coord > 1 or v_coord < 0 or v_coord > 1): 
-            if button_right:
-                mouse_buttom += 4
-            # if button_trigger:
-            #     mouse_buttom += 2
-            if button_left:
-                mouse_buttom += 3
+            # if button_right:
+            #     mouse_buttom += 4
+            if button_trigger:
+                mouse_buttom += 2
+            # if button_left:
+            #     mouse_buttom += 3
         else:
             # if not offscreen_reload:
             #     if button_left:

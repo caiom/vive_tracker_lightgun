@@ -7,6 +7,8 @@ import time
 import multiprocessing
 from queue import Empty
 from numba import njit
+from numba.core import types
+from numba.typed import Dict
 
 cv2.setNumThreads(2)
 
@@ -161,6 +163,34 @@ get_object_points = get_object_points_p5
 num_obj_points = object_points.shape[0]
 
 @njit
+def get_blobs_stats(img, mapping, blob_features): # Function is compiled to machine code when called the first time
+
+    current_label = 0
+    for y in range(img.shape[0]):
+        for x in range(img.shape[1]):
+            val = img[y, x]
+
+            if val > 0:
+                if val in mapping:
+                    label = mapping[val]
+                else:
+                    label = current_label
+                    mapping[val] = current_label
+                    current_label += 1
+
+                if blob_features[label, 0] > x:
+                    blob_features[label, 0] = x
+                if blob_features[label, 1] < x:
+                    blob_features[label, 1] = x
+                if blob_features[label, 2] > y:
+                    blob_features[label, 2] = y
+                if blob_features[label, 3] < y:
+                    blob_features[label, 3] = y
+                blob_features[label, 4] += 1
+
+    return current_label
+
+@njit
 def process_cropped_region_numba(region: np.ndarray, background_noise: float, perc_25: float) -> (float, float):
     rows, cols = region.shape
 
@@ -191,7 +221,7 @@ def process_cropped_region_numba(region: np.ndarray, background_noise: float, pe
     y_center = (weighted_sum_y / total_weight) + 0.5
     return x_center, y_center
 
-def pose_worker(pose_queue: multiprocessing.Queue, stop_event):
+def pose_worker(shared_arr, arr_lock, stop_event):
     """
     Worker function to run in a separate process.
     Initializes the camera and computes poses, sending them back via a queue.
@@ -215,34 +245,54 @@ def pose_worker(pose_queue: multiprocessing.Queue, stop_event):
     mapx = np.load(base_path + "mapx.npy")
     mapy = np.load(base_path + "mapy.npy")
 
+
+    arr = np.frombuffer(shared_arr.get_obj(), dtype='d')  # 'd' = double precision float
+    arr = arr.reshape((4, 4))
+
     while not stop_event.is_set():
         pose = compute_pose(cam, cam_matrix, dist_coeffs, mapx, mapy)
         if pose is not None:
-            try:
-                # Keep only the latest pose
-                if not pose_queue.empty():
-                    try:
-                        pose_queue.get_nowait()
-                    except Empty:
-                        pass
-                pose_queue.put(pose)
-            except multiprocessing.queues.Full:
-                pass  # If queue is full, skip
+            with arr_lock:
+                arr[:] = pose[:]
+            # try:
+            #     # # Keep only the latest pose
+            #     # if not pose_queue.empty():
+            #     #     try:
+            #     #         pose_queue.get_nowait()
+            #     #     except Empty:
+            #     #         pass
+            #     pose_queue.put(pose)
+            # except multiprocessing.queues.Full:
+            #     pass  # If queue is full, skip
 
     cam.cleanup()
+
+def fast_percentile(array, perc=50):
+    k = int(array.size * (perc/100.0))
+    return np.partition(array.flatten(), k)[k]
 
 def compute_pose(cam, cam_matrix, dist_coeffs, mapx, mapy):
     """
     Capture frame, process it, and compute the pose.
     This function mirrors the _compute_pose method from your original class.
     """
+
+    # if not hasattr(compute_pose, "binary_img_gpu"):
+    #     compute_pose.binary_img_gpu = cv2.cuda_GpuMat((640, 400), cv2.CV_8U)
+    #     compute_pose.resized_img_gpu = cv2.cuda_GpuMat((640, 400), cv2.CV_8U)
+    #     compute_pose.label_img_gpu = cv2.cuda_GpuMat((640, 400), cv2.CV_32S)
+    #     compute_pose.base_img_gpu = cv2.cuda_GpuMat((1920, 1200), cv2.CV_8U)
+    #     compute_pose.st = cv2.cuda.Stream()
+    #     compute_pose.img = cv2.imread("sample_frame_0.png", cv2.IMREAD_GRAYSCALE)
+    #     print("init")
+
     stime = time.perf_counter()
     frame = cam.grab()
     if frame is None:
         return None
     
     egrab = time.perf_counter()
-    print(f"Grab time: {egrab - stime}")
+    # print(f"Grab time: {egrab - stime}")
     
     frame = np.reshape(frame, (frame.shape[0], frame.shape[1]))
 
@@ -251,35 +301,65 @@ def compute_pose(cam, cam_matrix, dist_coeffs, mapx, mapy):
     # frame = cv2.remap(frame, mapx, mapy, interpolation=cv2.INTER_LINEAR)
 
     rframe = cv2.resize(frame, (640, 400), interpolation=cv2.INTER_LINEAR)
-    eresize = time.perf_counter()
-    print(f"Resize time: {eresize - egrab}")
+    # eresize = time.perf_counter()
+    # print(f"Resize time: {eresize - egrab}")
 
-    # return None
+    # # return None
 
-    # Apply binary thresholding
+    # # Apply binary thresholding
     _, thresh = cv2.threshold(rframe, 80, 255, cv2.THRESH_BINARY)
 
-    # Find connected components
+    # # Find connected components
     num_labels, labels_im, stats, centroids = cv2.connectedComponentsWithStats(thresh)
-    econnected = time.perf_counter()
-    print(f"CC time: {econnected - eresize}")
+
+    # compute_pose.base_img_gpu.upload(frame, stream=compute_pose.st)
+
+    # cv2.cuda.resize(compute_pose.base_img_gpu, (640,400), interpolation = cv2.INTER_LINEAR, dst=compute_pose.resized_img_gpu, stream=compute_pose.st)
+    # cv2.cuda.threshold(compute_pose.resized_img_gpu, 80, 255, cv2.THRESH_BINARY, dst=compute_pose.binary_img_gpu, stream=compute_pose.st)
+    # cv2.cuda.connectedComponents(compute_pose.binary_img_gpu, labels=compute_pose.label_img_gpu)
+
+    # d = Dict.empty(
+    #     key_type=types.int64,
+    #     value_type=types.int64,
+    # )
+    
+    # blob_features = np.zeros((50, 5), dtype=np.int64)
+    # blob_features[:, 0] = 5000
+    # blob_features[:, 2] = 5000
+    
+    # labels_im = compute_pose.label_img_gpu.download()
+    # rframe = compute_pose.resized_img_gpu.download()
+
+    # num_labels = get_blobs_stats(labels_im, d, blob_features)
+    # blob_features = blob_features[:num_labels]
+
+    # econnected = time.perf_counter()
+    # print(f"Resize and CC time: {econnected - egrab}")
     # Collect blob statistics
     blob_stats = []
     for label in range(1, num_labels):
         x, y, w, h, area = stats[label]
-        if area > 4:  # Filter out small blobs
+        # h = (y2 - y) + 1
+        # w = (x2 - x) + 1
+        if area > 9:  # Filter out small blobs
             roi_labels = labels_im[y:y+h, x:x+w]
             roi_gray = rframe[y:y+h, x:x+w]
-            blob_mask = roi_labels == label
-            perc_25 = np.mean(roi_gray[blob_mask])
+            blob_mask = roi_labels > 0
+            perc_50 = fast_percentile(roi_gray[blob_mask], 50)
+            nmask = roi_gray[~blob_mask]
+            if nmask.size == 0:
+                print(f"Wrong mask of blob {area} - {num_labels} - {label}")
+                perc_10 = 0
+            else:
+                perc_10 = fast_percentile(roi_gray[~blob_mask], 10)
             blob_stats.append({
-                'label': label,
                 'x': x*3,
                 'y': y*3,
                 'w': w*3,
                 'h': h*3,
-                'area': area*4,
-                'perc_25': perc_25
+                'perc_50': perc_50,
+                'perc_10': perc_10,
+                'area': area,
             })
 
     if len(blob_stats) < num_obj_points:
@@ -291,15 +371,15 @@ def compute_pose(cam, cam_matrix, dist_coeffs, mapx, mapy):
     blobs_position = []
 
     estats = time.perf_counter()
-    print(f"Stats time: {estats - econnected}")
+    # print(f"Stats time: {estats - econnected}")
 
     for blob in blob_stats:
         center = calculate_center_of_blob(blob, frame)
         if center is not None:
             blobs_position.append(center)
 
-    ecblob = time.perf_counter()
-    print(f"Stats time: {ecblob - estats}")
+    # ecblob = time.perf_counter()
+    # print(f"Stats time: {ecblob - estats}")
 
     if len(blobs_position) == num_obj_points:
         blobs_position = get_object_points(blobs_position)  # Define this function accordingly
@@ -313,7 +393,9 @@ def compute_pose(cam, cam_matrix, dist_coeffs, mapx, mapy):
             flags=cv2.SOLVEPNP_SQPNP
         )
 
-        print(f"Total pose time: {time.perf_counter() - stime}")
+        if (time.perf_counter() - egrab) > 0.006:
+            print(f"Warning {time.perf_counter() - egrab}")
+        # print(f"Total pose time: {time.perf_counter() - stime}")
 
         if success:
             rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
@@ -328,7 +410,7 @@ def calculate_center_of_blob(blob: dict, gray_image: np.ndarray) -> Optional[Tup
     """
     Calculate the center of the blob based on the blob statistics and grayscale image.
     """
-    x, y, w, h, perc_25 = blob['x'], blob['y'], blob['w'], blob['h'], blob['perc_25']
+    x, y, w, h, perc_50, background_noise = blob['x'], blob['y'], blob['w'], blob['h'], blob['perc_50'], blob['perc_10']
 
     padding = 2
     x1 = max(x - padding, 0)
@@ -337,15 +419,13 @@ def calculate_center_of_blob(blob: dict, gray_image: np.ndarray) -> Optional[Tup
     y2 = min(y + h + padding, gray_image.shape[0] - 1)
 
     cropped_grad = gray_image[y1:y2, x1:x2]
-    # background_noise = np.percentile(cropped_grad[cropped_grad < perc_25], 10)
 
-    background_noise = np.mean(cropped_grad[cropped_grad < perc_25])
-    perc_25 -= background_noise
+    perc_50 -= background_noise
 
-    if perc_25 <= 0:
+    if perc_50 <= 0:
         return None
 
-    center = process_cropped_region_numba(cropped_grad, background_noise, perc_25)
+    center = process_cropped_region_numba(cropped_grad, background_noise, perc_50)
     if center[0] != -1.0:
         blob_x, blob_y = center
         blob_x += x1
@@ -360,16 +440,23 @@ class PoseEstimator:
         """
         Initializes the PoseEstimator by setting up the camera and loading calibration data.
         """
-        self.pose_queue = multiprocessing.Queue(maxsize=1)
+        shape = (4, 4)
+        dtype = 'd'  # 'd' = float64 in multiprocessing.Array
+        total_elements = shape[0] * shape[1]
+
+        self.shared_arr = multiprocessing.Array(dtype, total_elements)
+        self.lock = multiprocessing.Lock()
+
+        self.pose_queue = multiprocessing.Queue(maxsize=100)
         self.stop_event = multiprocessing.Event()
         self.process = multiprocessing.Process(
             target=pose_worker,
-            args=(self.pose_queue, self.stop_event),
+            args=(self.shared_arr, self.lock, self.stop_event),
             daemon=True
         )
         self.process.start()
-        self._pose_lock = threading.Lock()
-        self._pose_matrix = None
+        self._pose_matrix = np.frombuffer(self.shared_arr.get_obj(), dtype=dtype)
+        self._pose_matrix = np.reshape(self._pose_matrix, (4, 4))
 
     def cleanup(self):
         """
@@ -379,9 +466,9 @@ class PoseEstimator:
         self.process.join(timeout=5.0)
         if self.process.is_alive():
             self.process.terminate()
-        while not self.pose_queue.empty():
-            self.pose_queue.get()
-        self.pose_queue.close()
+        # while not self.pose_queue.empty():
+        #     self.pose_queue.get()
+        # self.pose_queue.close()
 
     def get_pose(self) -> Optional[np.ndarray]:
         """
@@ -391,13 +478,31 @@ class PoseEstimator:
         - np.ndarray: A 4x4 matrix combining rotation and translation if available.
         - None: If no valid pose has been computed yet.
         """
-        with self._pose_lock:
-            while not self.pose_queue.empty():
-                self._pose_matrix = self.pose_queue.get()
-            return self._pose_matrix.copy() if self._pose_matrix is not None else None
+        # with self._pose_lock:
+        # while not self.pose_queue.empty():
+        #     self._pose_matrix = self.pose_queue.get()
+        # return self._pose_matrix.copy() if self._pose_matrix is not None else None
+        with self.lock:
+            pose_matrix = self._pose_matrix.copy()
+        return pose_matrix
     
     def __del__(self):
         """
         Ensures that resources are cleaned up when the instance is destroyed.
         """
         self.cleanup()
+
+if __name__ == "__main__":
+    pose = PoseEstimator()
+
+    time.sleep(180)
+    
+    # st = time.time()
+
+    
+
+    # while (time.time() - st) < 180:
+    #     # pose_matrix = pose.get_pose()
+    #     time.sleep(1)
+
+    pose.cleanup()

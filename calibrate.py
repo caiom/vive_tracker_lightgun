@@ -35,7 +35,7 @@ prev_img_shape = None
 # in a given directory. Since no path is 
 # specified, it will take current directory 
 # jpg files alone 
-base_path = pl.Path("C:\\Users\\v3n0w\\Downloads\\Camera\\vive_tracker_lightgun\\calib_images_icam_8mm")
+base_path = pl.Path("calib_images_icam_8mm_2")
 images = list(base_path.glob("*.png"))
   
 for filename in images: 
@@ -70,8 +70,8 @@ for filename in images:
                                           CHECKERBOARD,  
                                           corners2, ret) 
   
-    # cv2.imshow('img', image)
-    # cv2.waitKey(0)  
+    cv2.imshow('img', image)
+    cv2.waitKey(0)  
   
 cv2.destroyAllWindows() 
   

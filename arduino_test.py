@@ -18,9 +18,9 @@ import threading
 # import FakeMouse
 
 
-ntdll = ctypes.WinDLL('NTDLL.DLL')
+# ntdll = ctypes.WinDLL('NTDLL.DLL')
 
-NSEC_PER_SEC = 1000000000
+# NSEC_PER_SEC = 1000000000
 
 class ArduinoAbsMouse:
     def __init__(self):

@@ -81,7 +81,7 @@ class ICamera:
 
 # Example Usage
 if __name__ == "__main__":
-    camera = ICamera(30)
+    camera = ICamera()
     frame_number = 0
     try:
         while True:
@@ -95,7 +95,7 @@ if __name__ == "__main__":
             if key == ord('q'):
                 break
             if key == ord('s'):
-                file_name = f'chessboard_frame_{frame_number}.png'
+                file_name = f'sample_frame_{frame_number}.png'
                 frame_number += 1
                 
                 # Save the current frame
