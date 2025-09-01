@@ -29,7 +29,12 @@ logs = ["short_plane_log_interactive_50.npy",
         "short_p5_large_9_exp_pad_2_0_gain.npy",
         "short_p5_small_9_exp_pad_2_0_gain.npy"]
 
-base_path = pl.Path("C:\\Users\\v3n0w\\Downloads\\Camera")
+
+logs = ["standard_9_points.npy", 
+        "standard_5_points.npy",
+        "standard_5_points_bin_blob.npy"]
+
+base_path = pl.Path("C:\\Users\\Caio\\vive_tracker_lightgun")
 log_paths = [base_path / log_name for log_name in logs]
 
 last_n = 30

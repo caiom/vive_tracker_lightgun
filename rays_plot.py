@@ -4,25 +4,20 @@ import plotly.graph_objects as go
 # Sample list of rays: each ray is a tuple (starting point, direction vector)
 def calculate_pos_and_dir_from_pose(pose_matrix):
     tracker_position = np.copy(pose_matrix[:3, -1])
-    tracker_direction = np.copy(pose_matrix[2, :3])
-    tracker_direction[2] = -tracker_direction[2]
+    tracker_direction = -np.copy(pose_matrix[:3, 2])
+    # tracker_direction[2] = -tracker_direction[2]
 
     return (tracker_position, tracker_direction)
 
-i = 0
-read = 0
+tracker_to_gun = np.load("tracker_to_gun.npy")
+print(tracker_to_gun)
+# Example data: list of pose matrices P_i
 rays = []
-while i < 16:
-    print(f"Reading {i}")
-    pose_matrix = np.load(f'pose_matrix_{i}.npy')
-    rays.append(calculate_pos_and_dir_from_pose(pose_matrix))
-    read += 1
-    i += 1
 
-    if read == 5:
-        i += 3
-        read = 0
-        continue
+for i in range(0, 42):
+    pose_matrix = np.load(f'calib_shots_1/shoot_{i}.npy')
+    rays.append(calculate_pos_and_dir_from_pose(tracker_to_gun @ pose_matrix))
+    # rays.append(calculate_pos_and_dir_from_pose(pose_matrix))
 
 
 # rays = [
@@ -40,8 +35,8 @@ for start_point, direction in rays:
     dx, dy, dz = direction
 
     # Define the length of the ray for plotting purposes
-    t_max = 2000  # Adjust as needed
-    t = np.linspace(0, t_max, 100)
+    t_max = 1200  # Adjust as needed
+    t = np.linspace(0, t_max, 200)
 
     # Calculate the ray coordinates
     x = x0 + dx * t
@@ -64,6 +59,23 @@ for start_point, direction in rays:
         showlegend=False
     ))
 
+fig.add_trace(go.Scatter3d(
+        x=[81.91], y=[34.69], z=[620.79],
+        mode='markers',
+        marker=dict(size=5, color='red'),
+        showlegend=False
+    ))
+
+fig.add_trace(go.Scatter3d(
+        x=[-70.28], y=[151.78], z=[729.83],
+        mode='markers',
+        marker=dict(size=5, color='red'),
+        showlegend=False
+    ))
+
+
+# X = np.array([122.28, 222.32, 857.25])
+
 # Update layout for better visualization
 fig.update_layout(
     scene=dict(
@@ -73,8 +85,8 @@ fig.update_layout(
         aspectmode='data'  # Ensures equal scaling
     ),
     title='3D Rays Visualization',
-    width=800,
-    height=600
+    width=1920,
+    height=1080
 )
 
 # Show the interactive plot

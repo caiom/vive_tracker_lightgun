@@ -264,12 +264,12 @@ object_points = object_points_p5_large
 get_object_points = get_object_points_p5
 num_obj_points = object_points.shape[0]
 
-cam = ICamera(0.5)
+cam = ICamera()
 
 
 real_ball_diameter = 19.9
 base_path = "calib_images_icam_8mm_2\\"
-cam_matrix = np.load(base_path + "new_cam_matrix.npy")
+cam_matrix = np.load(base_path + "cam_matrix.npy")
 dist = np.load(base_path + "distortion.npy")
 mapx = np.load(base_path + "mapx.npy")
 mapy = np.load(base_path + "mapy.npy")
@@ -299,7 +299,7 @@ while True:
     # print(f"time to read: {time.perf_counter()-sread}")
     sproc = time.perf_counter()
     frame = cv2.flip(frame, 1)
-    frame = cv2.remap(frame, mapx, mapy, interpolation=cv2.INTER_LINEAR)
+    # frame = cv2.remap(frame, mapx, mapy, interpolation=cv2.INTER_LINEAR)
     frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
     
 
@@ -307,7 +307,7 @@ while True:
     gray_image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     rframe = cv2.resize(gray_image, (gray_image.shape[1] // 2,gray_image.shape[0] // 2), interpolation = cv2.INTER_LINEAR)
 
-    _, thresh = cv2.threshold(rframe, 100, 255, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(rframe, 80, 255, cv2.THRESH_BINARY)
 
     num_labels, labels_im, stats, centroids = cv2.connectedComponentsWithStats(thresh)
 
@@ -351,7 +351,7 @@ while True:
         x, y, w, h = blob['x'], blob['y'], blob['w'], blob['h']
 
         # Expand the bounding rectangle
-        padding = 2
+        padding = max(int(w*0.3), 3)
         x1 = max(x - padding, 0)
         y1 = max(y - padding, 0)
         x2 = min(x + w + padding, gray_image.shape[1] - 1)
@@ -359,13 +359,15 @@ while True:
 
         # Crop the gradient magnitude image
         cropped_grad = gray_image[y1:y2, x1:x2]
-        background_noise = np.percentile(cropped_grad[cropped_grad < blob['perc_25']], 10)
+        background_noise = np.percentile(cropped_grad[cropped_grad < blob['perc_25']], 20)
+
+        perc_25 = blob['perc_25'] - background_noise
         cropped_grad[cropped_grad < background_noise] = 0
         cropped_grad[cropped_grad >= background_noise] = cropped_grad[cropped_grad >= background_noise] - background_noise
-        cropped_grad[cropped_grad > blob['perc_25']] = blob['perc_25']
+        cropped_grad[cropped_grad > perc_25] = perc_25
         cv2.imshow(f"Blob{blob_id}", cropped_grad)
 
-        blob_x, blob_y = calculate_center_of_blob(cropped_grad, blob['perc_25'])
+        blob_x, blob_y = calculate_center_of_blob(cropped_grad, perc_25)
         blob_x += x1
         blob_y += y1
 
@@ -391,7 +393,7 @@ while True:
             object_points,
             ball_positions,
             cam_matrix,
-            None,
+            dist,
             flags=cv2.SOLVEPNP_SQPNP,
         )
 

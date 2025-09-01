@@ -6,7 +6,7 @@ import pathlib as pl
   
   
 # Define the dimensions of checkerboard 
-CHECKERBOARD = (7, 10) 
+CHECKERBOARD = (6, 9)
   
   
 # stop the iteration when specified 
@@ -27,7 +27,7 @@ twodpoints = []
 objectp3d = np.zeros((1, CHECKERBOARD[0]  
                       * CHECKERBOARD[1],  
                       3), np.float32) 
-objectp3d[0, :, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2) * 15
+objectp3d[0, :, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2) * 39.56
 prev_img_shape = None
   
   
@@ -35,7 +35,7 @@ prev_img_shape = None
 # in a given directory. Since no path is 
 # specified, it will take current directory 
 # jpg files alone 
-base_path = pl.Path("calib_images_icam_8mm_2")
+base_path = pl.Path("calib_images_icam_8mm_3")
 images = list(base_path.glob("*.png"))
   
 for filename in images: 

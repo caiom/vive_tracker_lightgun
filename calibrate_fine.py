@@ -17,7 +17,7 @@ running = True
 dt = 0
 
 large_ball_size = 40
-small_ball_size = 5
+small_ball_size = 3
 
 ball_pos = pygame.Vector2(large_ball_size, screen.get_height()-large_ball_size)
 pos_mapping = {0: (large_ball_size, screen.get_height()-large_ball_size),
@@ -97,18 +97,6 @@ while running:
 
         if event.type == pygame.KEYDOWN and event.key == pygame.K_k:
             key_pressed = True
-
-    # if key_pressed and not trigger_pressed:
-    #     if pose_matrix is not None:
-    #         np.save(f'pose_matrix_{corner_number}.npy', pose_matrix)
-    #         corner_number+=1
-    #         ball_pos.x = pos_mapping[corner_number % num_key_points][0]
-    #         ball_pos.y = pos_mapping[corner_number % num_key_points][1]
-
-    #     trigger_pressed = True
-
-    # if key_pressed and trigger_pressed:
-    #     trigger_pressed = False
 
 
     # Draw circle as a reference for aiming

@@ -118,6 +118,10 @@ if __name__ == "__main__":
                     if button_a:
                         print(f"Pressed {step}")
                         step += 1
+
+                    if trigger:
+                        print(f"Pressed {step}")
+                        step += 1
                     # print(f"Trigger: {'Pressed' if trigger else 'Released'}, "
                     #       f"Button A: {'Pressed' if button_a else 'Released'}, "
                     #       f"Button B: {'Pressed' if button_b else 'Released'}")

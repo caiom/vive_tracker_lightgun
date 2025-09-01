@@ -57,8 +57,8 @@ class ICamera:
             # Release the image buffer back to the camera
             mvsdk.CameraReleaseImageBuffer(self.h_camera, p_raw_data)
 
-            # Optionally flip the image if needed (1 for horizontal flip)
-            mvsdk.CameraFlipFrameBuffer(self.p_frame_buffer, frame_head, 1)
+            # Optionally flip the image if needed (3 for horizontal flip)
+            mvsdk.CameraFlipFrameBuffer(self.p_frame_buffer, frame_head, 3)
 
             # Convert the processed buffer to a NumPy array
             frame_data = (mvsdk.c_ubyte * frame_head.uBytes).from_address(self.p_frame_buffer)
@@ -81,7 +81,7 @@ class ICamera:
 
 # Example Usage
 if __name__ == "__main__":
-    camera = ICamera()
+    camera = ICamera(60)
     frame_number = 0
     try:
         while True:
@@ -95,7 +95,7 @@ if __name__ == "__main__":
             if key == ord('q'):
                 break
             if key == ord('s'):
-                file_name = f'sample_frame_{frame_number}.png'
+                file_name = f'tsample_frame_{frame_number}.png'
                 frame_number += 1
                 
                 # Save the current frame
